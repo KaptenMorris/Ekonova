@@ -2,10 +2,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import type { Bill, Category } from "@/types";
 import { useBills } from "@/hooks/useBills";
-import { useBoards } from "@/hooks/useBoards"; // Import useBoards
-import { useToast } from "@/hooks/use-toast"; // Import useToast
-import type { Bill } from "@/types";
+import { useBoards } from "@/hooks/useBoards"; 
+import { useToast } from "@/hooks/use-toast"; 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PlusCircle, Loader2, Info, CheckCircle2, Receipt } from "lucide-react";
@@ -34,6 +34,9 @@ export default function BillsPage() {
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
   const [billToDelete, setBillToDelete] = useState<string | null>(null);
 
+  const expenseCategories = useMemo(() => {
+    return (activeBoard?.categories || []).filter(c => c.type === 'expense');
+  }, [activeBoard]);
 
   const unpaidBills = useMemo(() => {
     return bills.filter(b => !b.isPaid).sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -51,6 +54,8 @@ export default function BillsPage() {
     const newBill = addBill(billData);
     if (newBill) {
       toast({ title: "Räkning Tillagd", description: `${newBill.title} har lagts till.`});
+    } else {
+      toast({ title: "Fel", description: "Kunde inte lägga till räkningen.", variant: "destructive"});
     }
     setIsAddBillDialogOpen(false);
   };
@@ -81,7 +86,7 @@ export default function BillsPage() {
     if (!billToToggle) return;
 
     const originalIsPaid = billToToggle.isPaid;
-    const updatedBill = toggleBillStatusInHook(billId); // From useBills hook
+    const updatedBill = toggleBillStatusInHook(billId); 
 
     if (updatedBill && !originalIsPaid && updatedBill.isPaid) {
         // Bill was just marked as paid
@@ -93,33 +98,34 @@ export default function BillsPage() {
             toast({ title: "Fel", description: "Betaldatum saknas för räkningen.", variant: "destructive" });
             return; 
         }
-
-        const billsCategoryName = "Betalda Räkningar";
-        const billsCategoryIcon = "Receipt";
-
-        let category = activeBoard.categories.find(c => c.name === billsCategoryName && c.type === 'expense');
-
-        if (!category) {
-            const newCategory = addCategoryToActiveBoard({
-                name: billsCategoryName,
-                type: 'expense',
-                icon: billsCategoryIcon,
-            });
-            if (!newCategory) {
-                 toast({ title: "Fel", description: `Kunde inte skapa kategorin "${billsCategoryName}". Räkningen markerades som betald, men ingen transaktion skapades.`, variant: "destructive" });
-                return;
-            }
-            category = newCategory;
+        if (!updatedBill.categoryId) {
+            toast({ title: "Fel", description: "Kategori saknas för räkningen. Redigera räkningen och välj en kategori.", variant: "destructive" });
+            // Potentially revert the paid status or handle differently
+            toggleBillStatusInHook(billId); // Revert paid status
+            return;
         }
 
-        addTransactionToActiveBoard({
+        const targetCategory = activeBoard.categories.find(c => c.id === updatedBill.categoryId && c.type === 'expense');
+
+        if (!targetCategory) {
+            toast({ title: "Fel", description: `Kategorin för räkningen hittades inte på tavlan. Skapa transaktionen manuellt.`, variant: "destructive" });
+            // Bill is marked paid, but no transaction created. User needs to be aware.
+            return;
+        }
+
+        const transactionAdded = addTransactionToActiveBoard({
             title: updatedBill.title,
             amount: updatedBill.amount, 
             date: updatedBill.paidDate,
-            categoryId: category.id,
-            description: `Automatisk transaktion från betald räkning (ID: ${updatedBill.id})`,
+            categoryId: targetCategory.id,
+            description: `Automatisk transaktion från betald räkning: ${updatedBill.title} (ID: ${updatedBill.id})`,
         });
-        toast({ title: "Räkning Betald", description: `${updatedBill.title} har markerats som betald och en transaktion har skapats på tavlan '${activeBoard.name}'.` });
+
+        if (transactionAdded) {
+            toast({ title: "Räkning Betald", description: `${updatedBill.title} har markerats som betald och en transaktion har skapats i kategorin "${targetCategory.name}" på tavlan '${activeBoard.name}'.` });
+        } else {
+             toast({ title: "Räkning Betald (Delvis)", description: `${updatedBill.title} markerades som betald, men kunde inte skapa transaktion automatiskt.`, variant: "destructive" });
+        }
     
     } else if (updatedBill && originalIsPaid && !updatedBill.isPaid) {
         // Bill was marked as unpaid
@@ -143,10 +149,18 @@ export default function BillsPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-semibold text-primary">Mina Räkningar</h1>
-        <Button onClick={() => setIsAddBillDialogOpen(true)}>
+        <Button onClick={() => setIsAddBillDialogOpen(true)} disabled={expenseCategories.length === 0}>
           <PlusCircle className="mr-2 h-5 w-5" /> Lägg till Räkning
         </Button>
       </div>
+       {expenseCategories.length === 0 && !isLoadingBoards && (
+         <Alert variant="default">
+            <Info className="h-5 w-5"/>
+            <AlertTitle>Skapa en Utgiftskategori Först</AlertTitle>
+            <AlertDescription>Du måste ha minst en utgiftskategori på din aktiva tavla innan du kan lägga till räkningar. Gå till kontrollpanelen för att lägga till en.</AlertDescription>
+         </Alert>
+       )}
+
 
       <Card className="shadow-lg">
         <CardHeader>
@@ -164,7 +178,7 @@ export default function BillsPage() {
                 <AlertDescription>Du har inga obetalda räkningar just nu. Bra jobbat!</AlertDescription>
             </Alert>
           ) : (
-            <ScrollArea className="h-[calc(100vh-450px)] md:h-[calc(100vh-400px)] pr-3">
+            <ScrollArea className="h-[calc(100vh-500px)] md:h-[calc(100vh-450px)] pr-3">
                 <div className="space-y-4">
                 {unpaidBills.map(bill => (
                     <BillItemCard 
@@ -173,6 +187,7 @@ export default function BillsPage() {
                         onTogglePaid={handleToggleBillPaidStatus} 
                         onDelete={() => setBillToDelete(bill.id)}
                         onEdit={handleEditBill}
+                        categories={expenseCategories}
                     />
                 ))}
                 </div>
@@ -197,7 +212,7 @@ export default function BillsPage() {
                 <AlertDescription>När du markerar en räkning som betald kommer den att visas här.</AlertDescription>
             </Alert>
           ) : (
-            <ScrollArea className="h-[calc(100vh-450px)] md:h-[calc(100vh-400px)] pr-3">
+            <ScrollArea className="h-[calc(100vh-500px)] md:h-[calc(100vh-450px)] pr-3">
                 <div className="space-y-4">
                 {paidBills.map(bill => (
                     <BillItemCard 
@@ -206,6 +221,7 @@ export default function BillsPage() {
                         onTogglePaid={handleToggleBillPaidStatus} 
                         onDelete={() => setBillToDelete(bill.id)}
                         onEdit={handleEditBill} 
+                        categories={expenseCategories}
                     />
                 ))}
                 </div>
@@ -218,6 +234,7 @@ export default function BillsPage() {
         isOpen={isAddBillDialogOpen} 
         onClose={() => setIsAddBillDialogOpen(false)} 
         onAddBill={handleAddBill} 
+        categories={expenseCategories}
       />
       {editingBill && (
         <EditBillDialog
@@ -225,6 +242,7 @@ export default function BillsPage() {
           onClose={() => setEditingBill(null)}
           bill={editingBill}
           onUpdateBill={handleUpdateBill}
+          categories={expenseCategories}
         />
       )}
       {billToDelete && (

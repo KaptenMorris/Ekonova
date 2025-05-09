@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 interface MockAuthContextType {
   isAuthenticated: boolean;
   currentUserEmail: string | null;
+  currentUserName: string | null;
   login: (email?: string, password?: string) => void;
   logout: () => void;
   signup: (email?: string, password?: string, name?: string) => void;
@@ -24,10 +25,13 @@ const MockAuthContext = createContext<MockAuthContextType | undefined>(undefined
 
 const AUTH_STORAGE_KEY = 'ekonova_auth_status';
 const AUTH_USER_EMAIL_KEY = 'ekonova_auth_user_email';
+const AUTH_USER_NAME_KEY = 'ekonova_auth_user_name';
+
 
 export function MockAuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [currentUserName, setCurrentUserName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
@@ -36,13 +40,22 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       try {
         const storedAuthStatus = localStorage.getItem(AUTH_STORAGE_KEY);
         const storedUserEmail = localStorage.getItem(AUTH_USER_EMAIL_KEY);
+        const storedUserName = localStorage.getItem(AUTH_USER_NAME_KEY);
+
         if (storedAuthStatus === 'true' && storedUserEmail) {
           setIsAuthenticated(true);
           setCurrentUserEmail(storedUserEmail);
+          if (storedUserName) {
+            setCurrentUserName(storedUserName);
+          } else {
+            // Fallback if name is missing but email exists
+            setCurrentUserName(storedUserEmail.split('@')[0]); 
+          }
         } else {
-          // Ensure consistency if one key exists but not the other
+          // Ensure consistency: clear all if auth status is not true or email is missing
           localStorage.removeItem(AUTH_STORAGE_KEY);
           localStorage.removeItem(AUTH_USER_EMAIL_KEY);
+          localStorage.removeItem(AUTH_USER_NAME_KEY);
         }
       } catch (error) {
         console.error("Kunde inte komma åt localStorage:", error);
@@ -54,20 +67,30 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback((email?: string, _password?: string) => {
     if (typeof window !== 'undefined' && email) {
       try {
+        const storedUserName = localStorage.getItem(AUTH_USER_NAME_KEY); // Check if a name was stored from a previous signup
+        const nameToSet = storedUserName || email.split('@')[0]; // Use stored name or derive from email
+
         localStorage.setItem(AUTH_STORAGE_KEY, 'true');
         localStorage.setItem(AUTH_USER_EMAIL_KEY, email);
+        localStorage.setItem(AUTH_USER_NAME_KEY, nameToSet); // Store/update name on login
+        
         setCurrentUserEmail(email);
+        setCurrentUserName(nameToSet);
         setIsAuthenticated(true);
         router.push('/dashboard');
       } catch (error) {
         console.error("Kunde inte komma åt localStorage:", error);
-        // Fallback if localStorage fails, still set state for current session
+        // Fallback if localStorage fails
+        const nameToSet = email.split('@')[0];
         setCurrentUserEmail(email);
+        setCurrentUserName(nameToSet);
         setIsAuthenticated(true);
         router.push('/dashboard');
       }
-    } else if (email) { // Handle case where window is not defined but email is passed (e.g. server initial state, though unlikely here)
+    } else if (email) { 
+        const nameToSet = email.split('@')[0];
         setCurrentUserEmail(email);
+        setCurrentUserName(nameToSet);
         setIsAuthenticated(true);
         router.push('/dashboard');
     }
@@ -78,38 +101,45 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       try {
         localStorage.removeItem(AUTH_STORAGE_KEY);
         localStorage.removeItem(AUTH_USER_EMAIL_KEY);
+        localStorage.removeItem(AUTH_USER_NAME_KEY);
       } catch (error) {
         console.error("Kunde inte komma åt localStorage:", error);
       }
     }
     setCurrentUserEmail(null);
+    setCurrentUserName(null);
     setIsAuthenticated(false);
-    router.push('/login'); // Explicitly redirect to login on logout
+    router.push('/login'); 
   }, [router]);
   
-  const signup = useCallback((email?: string, _password?: string, _name?: string) => {
-     if (typeof window !== 'undefined' && email) {
+  const signup = useCallback((email?: string, _password?: string, name?: string) => {
+     if (typeof window !== 'undefined' && email && name) {
       try {
         localStorage.setItem(AUTH_STORAGE_KEY, 'true');
         localStorage.setItem(AUTH_USER_EMAIL_KEY, email);
+        localStorage.setItem(AUTH_USER_NAME_KEY, name);
+
         setCurrentUserEmail(email);
+        setCurrentUserName(name);
         setIsAuthenticated(true);
         router.push('/dashboard');
       } catch (error) {
         console.error("Kunde inte komma åt localStorage:", error);
         setCurrentUserEmail(email);
+        setCurrentUserName(name);
         setIsAuthenticated(true);
         router.push('/dashboard');
       }
-    } else if (email) {
+    } else if (email && name) {
         setCurrentUserEmail(email);
+        setCurrentUserName(name);
         setIsAuthenticated(true);
         router.push('/dashboard');
     }
   }, [router]);
 
   return (
-    <MockAuthContext.Provider value={{ isAuthenticated, currentUserEmail, login, logout, signup, isLoading }}>
+    <MockAuthContext.Provider value={{ isAuthenticated, currentUserEmail, currentUserName, login, logout, signup, isLoading }}>
       {children}
     </MockAuthContext.Provider>
   );

@@ -14,12 +14,13 @@ import {
 } from '@/components/ui/sidebar';
 import { Logo } from '@/components/shared/Logo';
 import { useMockAuth } from '@/hooks/useMockAuth';
-import { LayoutDashboard, Lightbulb, Settings, LogOut, LineChart, ReceiptText } from 'lucide-react';
+import { LayoutDashboard, Lightbulb, Settings, LogOut, LineChart, ReceiptText, UserCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePathname } from 'next/navigation';
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export function AppSidebar() {
-  const { logout } = useMockAuth();
+  const { logout, currentUserEmail, currentUserName } = useMockAuth();
   const pathname = usePathname();
 
   const menuItems = [
@@ -29,6 +30,10 @@ export function AppSidebar() {
     { href: '/dashboard/budget-ai', label: 'AI Budgetrådgivare', icon: Lightbulb },
     // { href: '/dashboard/settings', label: 'Inställningar', icon: Settings }, // Placeholder
   ];
+
+  const userInitial = currentUserName ? currentUserName.charAt(0).toUpperCase() : (currentUserEmail ? currentUserEmail.charAt(0).toUpperCase() : 'A');
+  const displayName = currentUserName || (currentUserEmail ? currentUserEmail.split('@')[0] : "Användare");
+
 
   return (
     <Sidebar collapsible="icon" className="border-r">
@@ -55,22 +60,23 @@ export function AppSidebar() {
           ))}
         </SidebarMenu>
       </SidebarContent>
-      <SidebarSeparator />
-      <SidebarFooter className="p-4">
-        {/* User profile placeholder */}
-        {/* <div className="flex items-center gap-2 mb-4">
-          <Avatar>
-            <AvatarImage src="https://picsum.photos/40/40" alt="User" data-ai-hint="person avatar" />
-            <AvatarFallback>U</AvatarFallback>
+      
+      <SidebarFooter className="p-2 mt-auto"> {/* Use mt-auto to push to bottom */}
+        <SidebarSeparator className="my-2"/>
+        <div className="flex items-center gap-3 p-2 mb-2">
+          <Avatar className="h-9 w-9">
+            <AvatarImage src="https://picsum.photos/40/40" alt={displayName} data-ai-hint="person avatar" />
+            <AvatarFallback>{userInitial}</AvatarFallback>
           </Avatar>
-          <div className="text-sm">
-            <p className="font-semibold">User Name</p>
-            <p className="text-xs text-muted-foreground">user@example.com</p>
+          <div className="text-sm overflow-hidden group-data-[collapsible=icon]:hidden">
+            <p className="font-semibold truncate" title={displayName}>{displayName}</p>
+            {currentUserEmail && <p className="text-xs text-muted-foreground truncate" title={currentUserEmail}>{currentUserEmail}</p>}
           </div>
-        </div> */}
-        <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive" onClick={logout}>
-          <LogOut className="mr-2 h-5 w-5" />
-          Logga Ut
+        </div>
+         <SidebarSeparator className="my-2"/>
+        <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:aspect-square group-data-[collapsible=icon]:p-0" onClick={logout} title="Logga Ut">
+          <LogOut className="mr-2 h-5 w-5 group-data-[collapsible=icon]:mr-0" />
+          <span className="group-data-[collapsible=icon]:hidden">Logga Ut</span>
         </Button>
       </SidebarFooter>
     </Sidebar>

@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Bill } from "@/types";
+import type { Bill, Category } from "@/types";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,42 +18,63 @@ import {
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon } from "lucide-react"
+import { CalendarIcon, FolderArchive } from "lucide-react"
 import { format } from "date-fns"
 import { sv } from "date-fns/locale";
 import { cn } from "@/lib/utils"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 
 interface AddBillDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onAddBill: (bill: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>) => void;
+  categories: Category[]; // Expense categories for the active board
 }
 
 export function AddBillDialog({
   isOpen,
   onClose,
   onAddBill,
+  categories,
 }: AddBillDialogProps) {
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState<Date | undefined>(new Date());
   const [notes, setNotes] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const { toast } = useToast();
 
   const resetForm = () => {
     setTitle("");
     setAmount("");
     setDueDate(new Date());
     setNotes("");
+    setCategoryId("");
   };
 
   const handleSubmit = () => {
-    if (!title || !amount || !dueDate) {
-      alert("Vänligen fyll i titel, belopp och förfallodatum.");
+    if (!title || !amount || !dueDate || !categoryId) {
+      toast({
+        variant: "destructive",
+        title: "Obligatoriska fält saknas",
+        description: "Vänligen fyll i titel, belopp, förfallodatum och kategori.",
+      });
       return;
     }
     const numericAmount = parseFloat(amount.replace(',', '.'));
     if (isNaN(numericAmount) || numericAmount <= 0) {
-      alert("Ogiltigt belopp. Ange ett positivt nummer.");
+       toast({
+        variant: "destructive",
+        title: "Ogiltigt Belopp",
+        description: "Ange ett positivt nummer för belopp.",
+      });
       return;
     }
 
@@ -62,6 +83,7 @@ export function AddBillDialog({
       amount: numericAmount,
       dueDate: dueDate.toISOString(),
       notes,
+      categoryId,
     });
     resetForm();
     onClose();
@@ -136,6 +158,27 @@ export function AddBillDialog({
                 />
               </PopoverContent>
             </Popover>
+          </div>
+           <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="category-add-bill" className="text-right">
+              Kategori
+            </Label>
+            <Select value={categoryId} onValueChange={setCategoryId}>
+              <SelectTrigger className="col-span-3" id="category-add-bill">
+                <SelectValue placeholder="Välj en utgiftskategori" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.length > 0 ? categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>
+                    <div className="flex items-center">
+                       {/* Icon rendering can be added here if category icons are available */}
+                       {/* <FolderArchive className="mr-2 h-4 w-4" />  Example */}
+                      {cat.name}
+                    </div>
+                  </SelectItem>
+                )) : <SelectItem value="no-cat" disabled>Inga utgiftskategorier tillgängliga</SelectItem>}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="notes-add-bill" className="text-right">

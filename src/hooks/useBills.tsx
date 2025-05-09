@@ -81,6 +81,12 @@ export function BillProvider({ children }: { children: ReactNode }) {
         console.warn("Försök att lägga till räkning utan autentiserad användare.");
         return null;
     }
+    // Ensure categoryId is present, even if it's an empty string or a default
+    if (!billData.categoryId) {
+        console.error("categoryId saknas när räkning läggs till.");
+        // Potentially assign a default "uncategorized" ID or handle error
+        // For now, let's assume UI ensures it's passed
+    }
     const newBill: Bill = {
       ...billData,
       id: uuidv4(),
@@ -124,7 +130,8 @@ export function BillProvider({ children }: { children: ReactNode }) {
     let modifiedBill: Bill | null = null;
     const updatedBills = bills.map(bill => {
       if (bill.id === updatedBillData.id) {
-        modifiedBill = { ...bill, ...updatedBillData }; // Ensure all properties of Bill are spread
+        // Ensure categoryId is part of the update
+        modifiedBill = { ...bill, ...updatedBillData }; 
         return modifiedBill;
       }
       return bill;

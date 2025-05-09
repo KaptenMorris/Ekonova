@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Bill } from "@/types";
+import type { Bill, Category } from "@/types";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,16 +18,25 @@ import {
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon } from "lucide-react"
+import { CalendarIcon, FolderArchive } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { sv } from "date-fns/locale";
 import { cn } from "@/lib/utils"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 
 interface EditBillDialogProps {
   isOpen: boolean;
   onClose: () => void;
   bill: Bill;
   onUpdateBill: (bill: Bill) => void;
+  categories: Category[]; // Expense categories
 }
 
 export function EditBillDialog({
@@ -35,29 +44,41 @@ export function EditBillDialog({
   onClose,
   bill,
   onUpdateBill,
+  categories,
 }: EditBillDialogProps) {
   const [title, setTitle] = useState(bill.title);
   const [amount, setAmount] = useState(String(bill.amount).replace('.', ','));
-  const [dueDate, setDueDate] = useState<Date | undefined>(parseISO(bill.dueDate));
+  const [dueDate, setDueDate] = useState<Date | undefined>(bill.dueDate ? parseISO(bill.dueDate) : undefined);
   const [notes, setNotes] = useState(bill.notes || "");
+  const [categoryId, setCategoryId] = useState(bill.categoryId || "");
+  const { toast } = useToast();
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && bill) {
       setTitle(bill.title);
       setAmount(String(bill.amount).replace('.', ','));
-      setDueDate(parseISO(bill.dueDate));
+      setDueDate(bill.dueDate ? parseISO(bill.dueDate) : undefined);
       setNotes(bill.notes || "");
+      setCategoryId(bill.categoryId || "");
     }
   }, [bill, isOpen]);
 
   const handleSubmit = () => {
-    if (!title || !amount || !dueDate) {
-      alert("Vänligen fyll i titel, belopp och förfallodatum.");
+    if (!title || !amount || !dueDate || !categoryId) {
+      toast({
+        variant: "destructive",
+        title: "Obligatoriska fält saknas",
+        description: "Vänligen fyll i titel, belopp, förfallodatum och kategori.",
+      });
       return;
     }
     const numericAmount = parseFloat(amount.replace(',', '.'));
     if (isNaN(numericAmount) || numericAmount <= 0) {
-      alert("Ogiltigt belopp. Ange ett positivt nummer.");
+      toast({
+        variant: "destructive",
+        title: "Ogiltigt Belopp",
+        description: "Ange ett positivt nummer för belopp.",
+      });
       return;
     }
 
@@ -67,6 +88,7 @@ export function EditBillDialog({
       amount: numericAmount,
       dueDate: dueDate.toISOString(),
       notes,
+      categoryId,
     });
     onClose();
   };
@@ -131,6 +153,26 @@ export function EditBillDialog({
                 />
               </PopoverContent>
             </Popover>
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="category-edit-bill" className="text-right">
+              Kategori
+            </Label>
+            <Select value={categoryId} onValueChange={setCategoryId}>
+              <SelectTrigger className="col-span-3" id="category-edit-bill">
+                <SelectValue placeholder="Välj en utgiftskategori" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.length > 0 ? categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>
+                     <div className="flex items-center">
+                      {/* <FolderArchive className="mr-2 h-4 w-4" /> Example */}
+                      {cat.name}
+                    </div>
+                  </SelectItem>
+                )) : <SelectItem value="no-cat" disabled>Inga utgiftskategorier tillgängliga</SelectItem>}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="notes-edit-bill" className="text-right">

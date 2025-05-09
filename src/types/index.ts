@@ -41,6 +41,7 @@ export interface Bill {
   isPaid: boolean;
   paidDate?: string; // ISO string format, set when isPaid is true
   notes?: string;
-  // categoryId?: string; // Optional: for future categorization of bills
+  categoryId: string; // Category for the bill expense
   // recurring?: 'none' | 'monthly' | 'bi-weekly' | 'yearly'; // Optional: for future recurring bills
 }
+
