@@ -42,21 +42,19 @@ export default function LoginPage() {
     setIsSubmitting(false);
 
     if (!result.success) {
+      let description = "Kontrollera dina uppgifter och försök igen.";
       if (result.errorKey === 'account_deleted') {
-        toast({
-          title: "Konto Raderat",
-          description: "Detta konto har raderats. Registrera dig på nytt för att använda tjänsten.",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Inloggning Misslyckad",
-          description: "Kontrollera dina uppgifter och försök igen.",
-          variant: "destructive",
-        });
+        description = "Detta konto har raderats. Registrera dig på nytt för att använda tjänsten.";
+      } else if (result.errorKey === 'account_not_verified') {
+        description = "Ditt konto är inte verifierat. Vänligen kontrollera din e-post för verifieringslänken.";
       }
+      toast({
+        title: "Inloggning Misslyckad",
+        description: description,
+        variant: "destructive",
+      });
     }
-    // Successful login and redirection is handled by the login function itself
+    // Successful login and redirection is handled by the login function itself if successful
   };
 
   if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
