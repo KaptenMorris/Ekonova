@@ -16,9 +16,10 @@ function hslToHex(hslString: string): string {
 
   const hslMatch = hslString.match(/(\d+(\.\d+)?)\s*(\d+(\.\d+)?)%\s*(\d+(\.\d+)?)%/);
   if (!hslMatch) {
+    // Check if it's already a hex color
     if (/^#([0-9A-F]{3}){1,2}$/i.test(hslString)) return hslString.toUpperCase();
-    console.warn(`Invalid HSL string for HSL to HEX conversion: ${hslString}, returning black.`);
-    return "#000000";
+    // console.warn(`Invalid HSL string for HSL to HEX conversion: ${hslString}, returning black.`);
+    return "#000000"; // Return black for invalid non-HSL, non-HEX strings
   }
 
   let h = parseFloat(hslMatch[1]);
@@ -70,43 +71,42 @@ export function FinancialSummary() {
     if (typeof window !== "undefined") {
         const style = getComputedStyle(document.documentElement);
         
-        // Colors for Donut Chart (Expense Breakdown - primarily red-themed)
-        const destructiveColorHsl = style.getPropertyValue('--destructive').trim(); // Main red
-        const chart4Hsl = style.getPropertyValue('--chart-4').trim();     // Orange-Yellowish
-        const chart5Hsl = style.getPropertyValue('--chart-5').trim();     // Orangeish
-
-        // Ensure primary destructive color is first
-        const expensePaletteHslRaw = [
-            destructiveColorHsl,
-            chart5Hsl, // A warmer, less intense red/orange
-            chart4Hsl, // An even warmer, perhaps yellowish/orange for variety
-            'hsl(0, 70%, 70%)', // Lighter variant of main red
-            'hsl(0, 60%, 50%)', // Darker variant of main red
-            'hsl(10, 75%, 65%)', // Slightly more orange-red
-        ];
-        
-        const generatedExpenseDonutColors = expensePaletteHslRaw
-            .map(hsl => hslToHex(hsl))
-            .filter(hex => hex && hex !== "#000000" && hex.length > 1);
-
-        setExpenseDonutChartColors(generatedExpenseDonutColors.length > 0 ? generatedExpenseDonutColors : ['#F04438', '#F79009', '#FDB022', '#FDA29B', '#D92D20', '#B42318']);
-
-
-        // Specific colors for Bar Chart (Income vs Expense)
-        const incomeColor = hslToHex(style.getPropertyValue('--chart-2').trim() || 'hsl(145 63% 42%)'); // Greenish
-        const expenseColor = hslToHex(style.getPropertyValue('--destructive').trim() || 'hsl(0 84% 60%)'); // Reddish
+        // For Bar Chart (Income vs Expense)
+        // --chart-2 should be green (for income), --destructive should be red (for expenses)
+        const incomeColorHex = hslToHex(style.getPropertyValue('--chart-2').trim() || 'hsl(145 63% 42%)'); 
+        const expenseColorHex = hslToHex(style.getPropertyValue('--destructive').trim() || 'hsl(0 84% 60%)');
         
         setBarChartIncomeExpenseColors([
-            incomeColor && incomeColor !== "#000000" ? incomeColor : '#10B981', // Default Green
-            expenseColor && expenseColor !== "#000000" ? expenseColor : '#EF4444'  // Default Red
+            (incomeColorHex && incomeColorHex !== '#000000') ? incomeColorHex : '#10B981', // Default Green if theme fails
+            (expenseColorHex && expenseColorHex !== '#000000') ? expenseColorHex : '#EF4444'  // Default Red if theme fails
         ]);
 
+        // For Donut Chart (Expense Breakdown - primarily red-themed from --destructive, with accents)
+        const destructiveColorFromTheme = hslToHex(style.getPropertyValue('--destructive').trim());
+        const chart4ColorFromTheme = hslToHex(style.getPropertyValue('--chart-4').trim());
+        const chart5ColorFromTheme = hslToHex(style.getPropertyValue('--chart-5').trim());
+
+        const primaryDestructiveHex = (destructiveColorFromTheme && destructiveColorFromTheme !== '#000000') ? destructiveColorFromTheme : '#EF4444'; // Default Red
+
+        const expensePalette = [
+            primaryDestructiveHex,
+            (chart5ColorFromTheme && chart5ColorFromTheme !== '#000000') ? chart5ColorFromTheme : '#F97316', // Default Orange (Tailwind orange-500)
+            (chart4ColorFromTheme && chart4ColorFromTheme !== '#000000') ? chart4ColorFromTheme : '#F59E0B', // Default Amber (Tailwind amber-500)
+            hslToHex('hsl(0, 70%, 70%)'), // Lighter Red variant
+            hslToHex('hsl(0, 65%, 55%)'), // Mid Red variant
+            hslToHex('hsl(10, 80%, 60%)'), // Orange-Red variant
+        ].filter(color => color && color !== '#000000' && color.length > 1); // Filter out invalid conversions (black) and ensure it's a valid hex (e.g. not just "#")
+
+
+        // Fallback if all theme colors fail or result in black for the donut chart
+        const finalDonutColors = expensePalette.length > 0 ? expensePalette : ['#EF4444', '#F97316', '#F59E0B', '#F87171', '#DC2626', '#EA580C'];
+        setExpenseDonutChartColors(finalDonutColors);
 
         setValueFormatter(() => (value: number) => 
             `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace(/\s*kr$/, '').trim()} kr`
         );
     }
-  }, []);
+  }, []); // Runs once on mount to get CSS variables
 
   const totalIncome = useMemo(() => {
     return transactions
@@ -129,8 +129,9 @@ export function FinancialSummary() {
   }, [bills]);
 
   const incomeExpenseData = [
-    { name: "Total Inkomst", Inkomst: totalIncome, Utgifter: 0 }, // Structure for separate color assignment
-    { name: "Totala Utgifter", Inkomst: 0, Utgifter: totalExpenses },
+    // Data must have keys matching the `categories` prop of BarChart
+    { name: "Total Inkomst", "Inkomst": totalIncome, "Utgifter": 0 }, // Using "Inkomst" and "Utgifter" as keys
+    { name: "Totala Utgifter", "Inkomst": 0, "Utgifter": totalExpenses },
   ];
   
   const expenseBreakdownData = useMemo(() => {
@@ -286,13 +287,13 @@ export function FinancialSummary() {
             className="mt-6 h-72"
             data={incomeExpenseData}
             index="name"
-            categories={["Inkomst", "Utgifter"]} // Ensure these match keys in incomeExpenseData
-            colors={barChartIncomeExpenseColors} // [green, red]
+            categories={["Inkomst", "Utgifter"]} // These keys must match data structure & color mapping
+            colors={barChartIncomeExpenseColors} // Should be [greenForIncome, redForExpense]
             yAxisWidth={60}
             valueFormatter={valueFormatter}
             noDataText="Ingen data tillgänglig."
-            showLegend={false} // Legend is implicitly handled by category names if needed, or keep false.
-            stack={false} // Ensure bars are side-by-side if that's the intent for distinct income/expense. If stacked, ensure data structure supports it.
+            showLegend={false} 
+            stack={false} 
           />
         </CardContent>
       </Card>
@@ -310,7 +311,7 @@ export function FinancialSummary() {
               data={expenseBreakdownData}
               category="value"
               index="name"
-              colors={expenseDonutChartColors} // Uses the red/warm-themed palette for expenses
+              colors={expenseDonutChartColors} // Red/Warm palette for expenses
               valueFormatter={valueFormatter}
               noDataText="Inga utgiftsdata tillgängliga."
               variant="pie" 
