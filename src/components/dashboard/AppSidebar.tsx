@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Logo } from '@/components/shared/Logo';
 import { useMockAuth } from '@/hooks/useMockAuth';
-import { LayoutDashboard, Lightbulb, Settings, LogOut, DollarSign, LineChart } from 'lucide-react';
+import { LayoutDashboard, Lightbulb, Settings, LogOut, LineChart, ReceiptText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePathname } from 'next/navigation';
 
@@ -24,6 +25,7 @@ export function AppSidebar() {
   const menuItems = [
     { href: '/dashboard', label: 'Kontrollpanel', icon: LayoutDashboard },
     { href: '/dashboard/overview', label: 'Ekonomisk Översikt', icon: LineChart },
+    { href: '/dashboard/bills', label: 'Räkningar', icon: ReceiptText },
     { href: '/dashboard/budget-ai', label: 'AI Budgetrådgivare', icon: Lightbulb },
     // { href: '/dashboard/settings', label: 'Inställningar', icon: Settings }, // Placeholder
   ];

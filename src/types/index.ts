@@ -32,3 +32,15 @@ export type AISuggestion = {
 export type AISuggestionsOutput = {
   suggestions: AISuggestion[];
 };
+
+export interface Bill {
+  id: string;
+  title: string;
+  amount: number;
+  dueDate: string; // ISO string format
+  isPaid: boolean;
+  paidDate?: string; // ISO string format, set when isPaid is true
+  notes?: string;
+  // categoryId?: string; // Optional: for future categorization of bills
+  // recurring?: 'none' | 'monthly' | 'bi-weekly' | 'yearly'; // Optional: for future recurring bills
+}
