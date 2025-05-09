@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Transaction } from "@/types";
@@ -28,7 +29,7 @@ export function TransactionItemCard({ transaction, categoryType, onEdit, onDelet
           <CardDescription className="text-xs text-muted-foreground">{formattedDate}</CardDescription>
         </div>
         <div className={`text-lg font-bold ${amountColor}`}>
-          {amountPrefix}${Math.abs(transaction.amount).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {amountPrefix}{Math.abs(transaction.amount).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr
         </div>
       </CardHeader>
       <CardContent className="p-4 pt-0">

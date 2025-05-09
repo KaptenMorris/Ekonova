@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Category, Transaction } from "@/types";
@@ -94,7 +95,7 @@ export function CategoryColumn({
         <div className="flex justify-between w-full text-sm font-medium">
           <span>Totalt:</span>
           <span className={category.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-            {category.type === 'income' ? '+' : '-'}${Math.abs(totalAmount).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {category.type === 'income' ? '+' : '-'}{Math.abs(totalAmount).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr
           </span>
         </div>
       </CardFooter>
