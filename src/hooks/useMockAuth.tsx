@@ -11,13 +11,23 @@ import React, {
 } from 'react';
 import { useRouter } from 'next/navigation';
 
+interface LoginResult {
+  success: boolean;
+  errorKey?: 'account_deleted' | 'generic_error';
+}
+
+interface SignupResult {
+  success: boolean;
+  errorKey?: 'generic_error';
+}
+
 interface MockAuthContextType {
   isAuthenticated: boolean;
   currentUserEmail: string | null;
   currentUserName: string | null;
-  login: (email?: string, password?: string) => void;
+  login: (email?: string, password?: string) => Promise<LoginResult>;
   logout: () => void;
-  signup: (email?: string, password?: string, name?: string) => void;
+  signup: (email?: string, password?: string, name?: string) => Promise<SignupResult>;
   deleteAccount: () => void;
   isLoading: boolean;
 }
@@ -27,6 +37,43 @@ const MockAuthContext = createContext<MockAuthContextType | undefined>(undefined
 const AUTH_STORAGE_KEY = 'ekonova_auth_status';
 const AUTH_USER_EMAIL_KEY = 'ekonova_auth_user_email';
 const AUTH_USER_NAME_KEY = 'ekonova_auth_user_name';
+const DELETED_USERS_STORAGE_KEY = 'ekonova_deleted_users';
+
+
+const getDeletedUsers = (): string[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const storedDeletedUsers = localStorage.getItem(DELETED_USERS_STORAGE_KEY);
+    return storedDeletedUsers ? JSON.parse(storedDeletedUsers) : [];
+  } catch (error) {
+    console.error("Kunde inte hämta listan över raderade användare:", error);
+    return [];
+  }
+};
+
+const addDeletedUser = (email: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const users = getDeletedUsers();
+    if (!users.includes(email)) {
+      users.push(email);
+      localStorage.setItem(DELETED_USERS_STORAGE_KEY, JSON.stringify(users));
+    }
+  } catch (error) {
+    console.error("Kunde inte lägga till raderad användare:", error);
+  }
+};
+
+const removeDeletedUser = (email: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    let users = getDeletedUsers();
+    users = users.filter(u => u !== email);
+    localStorage.setItem(DELETED_USERS_STORAGE_KEY, JSON.stringify(users));
+  } catch (error) {
+    console.error("Kunde inte ta bort raderad användare från listan:", error);
+  }
+};
 
 
 export function MockAuthProvider({ children }: { children: ReactNode }) {
@@ -42,21 +89,23 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         const storedAuthStatus = localStorage.getItem(AUTH_STORAGE_KEY);
         const storedUserEmail = localStorage.getItem(AUTH_USER_EMAIL_KEY);
         const storedUserName = localStorage.getItem(AUTH_USER_NAME_KEY);
+        const deletedUsers = getDeletedUsers();
 
-        if (storedAuthStatus === 'true' && storedUserEmail) {
+        if (storedAuthStatus === 'true' && storedUserEmail && !deletedUsers.includes(storedUserEmail)) {
           setIsAuthenticated(true);
           setCurrentUserEmail(storedUserEmail);
           if (storedUserName) {
             setCurrentUserName(storedUserName);
           } else {
-            // Fallback if name is missing but email exists
             setCurrentUserName(storedUserEmail.split('@')[0]); 
           }
         } else {
-          // Ensure consistency: clear all if auth status is not true or email is missing
           localStorage.removeItem(AUTH_STORAGE_KEY);
           localStorage.removeItem(AUTH_USER_EMAIL_KEY);
           localStorage.removeItem(AUTH_USER_NAME_KEY);
+          setIsAuthenticated(false);
+          setCurrentUserEmail(null);
+          setCurrentUserName(null);
         }
       } catch (error) {
         console.error("Kunde inte komma åt localStorage:", error);
@@ -65,36 +114,35 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = useCallback((email?: string, _password?: string) => {
-    if (typeof window !== 'undefined' && email) {
+  const login = useCallback(async (email?: string, _password?: string): Promise<LoginResult> => {
+    if (!email) return { success: false, errorKey: 'generic_error' };
+
+    if (typeof window !== 'undefined') {
+      const deletedUsers = getDeletedUsers();
+      if (deletedUsers.includes(email)) {
+        return { success: false, errorKey: 'account_deleted' };
+      }
+
       try {
-        const storedUserName = localStorage.getItem(AUTH_USER_NAME_KEY); // Check if a name was stored from a previous signup
-        const nameToSet = storedUserName || email.split('@')[0]; // Use stored name or derive from email
+        const storedUserName = localStorage.getItem(AUTH_USER_NAME_KEY); 
+        const nameToSet = storedUserName || email.split('@')[0]; 
 
         localStorage.setItem(AUTH_STORAGE_KEY, 'true');
         localStorage.setItem(AUTH_USER_EMAIL_KEY, email);
-        localStorage.setItem(AUTH_USER_NAME_KEY, nameToSet); // Store/update name on login
+        localStorage.setItem(AUTH_USER_NAME_KEY, nameToSet); 
         
         setCurrentUserEmail(email);
         setCurrentUserName(nameToSet);
         setIsAuthenticated(true);
         router.push('/dashboard');
+        return { success: true };
       } catch (error) {
         console.error("Kunde inte komma åt localStorage:", error);
-        // Fallback if localStorage fails
-        const nameToSet = email.split('@')[0];
-        setCurrentUserEmail(email);
-        setCurrentUserName(nameToSet);
-        setIsAuthenticated(true);
-        router.push('/dashboard');
+        return { success: false, errorKey: 'generic_error' };
       }
-    } else if (email) { 
-        const nameToSet = email.split('@')[0];
-        setCurrentUserEmail(email);
-        setCurrentUserName(nameToSet);
-        setIsAuthenticated(true);
-        router.push('/dashboard');
     }
+    // Fallback for non-browser environments (should not happen with 'use client')
+    return { success: false, errorKey: 'generic_error' };
   }, [router]);
 
   const logout = useCallback(() => {
@@ -113,8 +161,11 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     router.push('/login'); 
   }, [router]);
   
-  const signup = useCallback((email?: string, _password?: string, name?: string) => {
-     if (typeof window !== 'undefined' && email && name) {
+  const signup = useCallback(async (email?: string, _password?: string, name?: string): Promise<SignupResult> => {
+     if (!email || !name) return { success: false, errorKey: 'generic_error'};
+     
+     if (typeof window !== 'undefined') {
+      removeDeletedUser(email); // Allow re-signup by removing from deleted list
       try {
         localStorage.setItem(AUTH_STORAGE_KEY, 'true');
         localStorage.setItem(AUTH_USER_EMAIL_KEY, email);
@@ -124,44 +175,26 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         setCurrentUserName(name);
         setIsAuthenticated(true);
         router.push('/dashboard');
+        return { success: true };
       } catch (error) {
         console.error("Kunde inte komma åt localStorage:", error);
-        setCurrentUserEmail(email);
-        setCurrentUserName(name);
-        setIsAuthenticated(true);
-        router.push('/dashboard');
+        return { success: false, errorKey: 'generic_error'};
       }
-    } else if (email && name) {
-        setCurrentUserEmail(email);
-        setCurrentUserName(name);
-        setIsAuthenticated(true);
-        router.push('/dashboard');
     }
+    return { success: false, errorKey: 'generic_error'};
   }, [router]);
 
   const deleteAccount = useCallback(() => {
-    const userEmail = currentUserEmail; // Capture current user's email before clearing state
-    if (typeof window !== 'undefined' && userEmail) {
+    const emailToDelete = currentUserEmail; 
+    if (typeof window !== 'undefined' && emailToDelete) {
+      addDeletedUser(emailToDelete); // Add to deleted list
       try {
-        // Clear auth specific keys
         localStorage.removeItem(AUTH_STORAGE_KEY);
         localStorage.removeItem(AUTH_USER_EMAIL_KEY);
         localStorage.removeItem(AUTH_USER_NAME_KEY);
-        
-        // Clear app-specific data for this user
-        localStorage.removeItem(`ekonova-boards-${userEmail}`);
-        localStorage.removeItem(`ekonova-active-board-id-${userEmail}`);
-        localStorage.removeItem(`ekonova-bills-${userEmail}`);
-
-        // Optionally, iterate through all localStorage keys if there's a pattern
-        // for user-specific data that isn't explicitly listed above.
-        // Example:
-        // Object.keys(localStorage).forEach(key => {
-        //   if (key.includes(userEmail)) { // Be careful with this pattern
-        //     localStorage.removeItem(key);
-        //   }
-        // });
-
+        localStorage.removeItem(`ekonova-boards-${emailToDelete}`);
+        localStorage.removeItem(`ekonova-active-board-id-${emailToDelete}`);
+        localStorage.removeItem(`ekonova-bills-${emailToDelete}`);
       } catch (error) {
         console.error("Kunde inte radera konto från localStorage:", error);
       }
@@ -169,7 +202,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     setCurrentUserEmail(null);
     setCurrentUserName(null);
     setIsAuthenticated(false);
-    router.push('/login'); // Redirect to login after deletion
+    router.push('/login'); 
   }, [router, currentUserEmail]);
 
 
@@ -187,4 +220,3 @@ export function useMockAuth() {
   }
   return context;
 }
-

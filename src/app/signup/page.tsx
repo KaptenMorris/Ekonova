@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -8,31 +9,54 @@ import { useMockAuth } from "@/hooks/useMockAuth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { UserPlus, User, Mail, KeyRound } from 'lucide-react';
+import { UserPlus, User, Mail, KeyRound, Loader2 } from 'lucide-react';
 import { Logo } from '@/components/shared/Logo';
+import { useToast } from "@/hooks/use-toast";
 
 export default function SignupPage() {
-  const { signup, isAuthenticated, isLoading } = useMockAuth();
+  const { signup, isAuthenticated, isLoading: isLoadingAuth } = useMockAuth();
   const router = useRouter();
+  const { toast } = useToast();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-     if (!isLoading && isAuthenticated) {
+     if (!isLoadingAuth && isAuthenticated) {
       router.replace('/dashboard');
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoadingAuth, router]);
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    signup(email, password, name);
+    if (!name || !email || !password) {
+        toast({
+            title: "Registrering Misslyckad",
+            description: "Vänligen fyll i alla fält.",
+            variant: "destructive",
+        });
+        return;
+    }
+    setIsSubmitting(true);
+    const result = await signup(email, password, name);
+    setIsSubmitting(false);
+
+    if (!result.success) {
+       toast({
+          title: "Registrering Misslyckad",
+          description: "Kunde inte skapa konto. Försök igen.",
+          variant: "destructive",
+        });
+    }
+    // Successful signup and redirection is handled by the signup function itself
   };
   
-  if (isLoading || (!isLoading && isAuthenticated)) {
+  if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
     return (
-      <div className="flex h-screen w-full items-center justify-center">
-        {/* Optional: Add a loader here */}
+      <div className="flex h-screen w-full items-center justify-center bg-secondary/50">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <span className="ml-3 text-lg">Laddar...</span>
       </div>
     );
   }
@@ -61,6 +85,7 @@ export default function SignupPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="pl-10"
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
@@ -76,6 +101,7 @@ export default function SignupPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
@@ -91,11 +117,13 @@ export default function SignupPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10"
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
-            <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6">
-              <UserPlus className="mr-2 h-5 w-5" /> Registrera Dig
+            <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6" disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <UserPlus className="mr-2 h-5 w-5" />}
+              {isSubmitting ? 'Registrerar...' : 'Registrera Dig'}
             </Button>
           </form>
         </CardContent>

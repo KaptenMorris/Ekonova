@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -8,30 +9,61 @@ import { useMockAuth } from "@/hooks/useMockAuth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { LogIn, Mail, KeyRound } from 'lucide-react';
+import { LogIn, Mail, KeyRound, Loader2 } from 'lucide-react';
 import { Logo } from '@/components/shared/Logo';
+import { useToast } from "@/hooks/use-toast";
 
 export default function LoginPage() {
-  const { login, isAuthenticated, isLoading } = useMockAuth();
+  const { login, isAuthenticated, isLoading: isLoadingAuth } = useMockAuth();
   const router = useRouter();
+  const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    if (!isLoadingAuth && isAuthenticated) {
       router.replace('/dashboard');
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoadingAuth, router]);
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    login(email, password);
+    if (!email || !password) {
+        toast({
+            title: "Inloggning Misslyckad",
+            description: "Vänligen fyll i både e-post och lösenord.",
+            variant: "destructive",
+        });
+        return;
+    }
+    setIsSubmitting(true);
+    const result = await login(email, password);
+    setIsSubmitting(false);
+
+    if (!result.success) {
+      if (result.errorKey === 'account_deleted') {
+        toast({
+          title: "Konto Raderat",
+          description: "Detta konto har raderats. Registrera dig på nytt för att använda tjänsten.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Inloggning Misslyckad",
+          description: "Kontrollera dina uppgifter och försök igen.",
+          variant: "destructive",
+        });
+      }
+    }
+    // Successful login and redirection is handled by the login function itself
   };
 
-  if (isLoading || (!isLoading && isAuthenticated)) {
+  if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
     return (
-      <div className="flex h-screen w-full items-center justify-center">
-        {/* Optional: Add a loader here */}
+      <div className="flex h-screen w-full items-center justify-center bg-secondary/50">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <span className="ml-3 text-lg">Laddar...</span>
       </div>
     );
   }
@@ -60,6 +92,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
@@ -75,11 +108,13 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10"
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
-            <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6">
-              <LogIn className="mr-2 h-5 w-5" /> Logga In
+            <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6" disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
+              {isSubmitting ? 'Loggar in...' : 'Logga In'}
             </Button>
           </form>
         </CardContent>
