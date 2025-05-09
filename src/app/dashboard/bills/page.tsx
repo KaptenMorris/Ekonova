@@ -28,7 +28,7 @@ import {
 
 export default function BillsPage() {
   const { bills, isLoadingBills, addBill, toggleBillPaidStatus: toggleBillStatusInHook, deleteBill, updateBill } = useBills();
-  const { activeBoard, addCategoryToActiveBoard, addTransactionToActiveBoard, isLoadingBoards } = useBoards();
+  const { activeBoard, addCategoryToActiveBoard, addTransactionToActiveBoard, deleteTransactionFromActiveBoard, isLoadingBoards } = useBoards();
   const { toast } = useToast();
   const [isAddBillDialogOpen, setIsAddBillDialogOpen] = useState(false);
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
@@ -92,16 +92,18 @@ export default function BillsPage() {
         // Bill was just marked as paid
         if (!activeBoard) {
             toast({ title: "Fel", description: "Ingen aktiv tavla vald för att bokföra räkningen.", variant: "destructive" });
+            // Revert UI change if necessary, or ensure toggleBillStatusInHook handles this
+            toggleBillStatusInHook(billId); // Revert paid status if board is missing
             return;
         }
         if (!updatedBill.paidDate) {
             toast({ title: "Fel", description: "Betaldatum saknas för räkningen.", variant: "destructive" });
+            toggleBillStatusInHook(billId); // Revert
             return; 
         }
         if (!updatedBill.categoryId) {
             toast({ title: "Fel", description: "Kategori saknas för räkningen. Redigera räkningen och välj en kategori.", variant: "destructive" });
-            // Potentially revert the paid status or handle differently
-            toggleBillStatusInHook(billId); // Revert paid status
+            toggleBillStatusInHook(billId); // Revert
             return;
         }
 
@@ -129,8 +131,22 @@ export default function BillsPage() {
     
     } else if (updatedBill && originalIsPaid && !updatedBill.isPaid) {
         // Bill was marked as unpaid
-        toast({ title: "Räkning Omarkerad", description: `${updatedBill.title} har markerats som obetald.` });
-        // Note: No automatic deletion of transaction here. User can manage that on the board.
+        if (activeBoard && updatedBill.id) {
+            const transactionToDelete = activeBoard.transactions.find(
+                t => t.description?.includes(`(ID: ${updatedBill.id})`) && t.title === updatedBill.title && t.amount === updatedBill.amount && t.categoryId === updatedBill.categoryId
+            );
+            if (transactionToDelete) {
+                deleteTransactionFromActiveBoard(transactionToDelete.id);
+                toast({
+                    title: "Räkning Omarkerad & Transaktion Raderad",
+                    description: `${updatedBill.title} har markerats som obetald och den tillhörande transaktionen har tagits bort från tavlan '${activeBoard.name}'.`
+                });
+            } else {
+                 toast({ title: "Räkning Omarkerad", description: `${updatedBill.title} har markerats som obetald. Ingen matchande transaktion hittades för automatisk radering.` });
+            }
+        } else {
+            toast({ title: "Räkning Omarkerad", description: `${updatedBill.title} har markerats som obetald.` });
+        }
     } else if (!updatedBill) {
         toast({ title: "Fel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive"});
     }

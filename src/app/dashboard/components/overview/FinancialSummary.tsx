@@ -1,20 +1,24 @@
-// src/app/dashboard/components/overview/FinancialSummary.tsx
+
 "use client";
 
 import type { Category, Transaction } from "@/types";
 import { useState, useEffect, useMemo } from "react";
 import { useBoards } from "@/hooks/useBoards";
-import { useBills } from "@/hooks/useBills"; // Import useBills
+import { useBills } from "@/hooks/useBills"; 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, DonutChart } from '@tremor/react';
-import { Loader2, ReceiptText, Coins, TrendingUp, TrendingDown, AlertCircle } from "lucide-react"; // Added ReceiptText
+import { Loader2, ReceiptText, Coins, TrendingUp, TrendingDown, AlertCircle } from "lucide-react"; 
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 // Helper to convert HSL string to hex for Tremor charts
 function hslToHex(hslString: string) {
-  if (!hslString) return "#000000";
+  if (!hslString) return "#000000"; // Default black if string is invalid
   const hslMatch = hslString.match(/(\d+)\s*(\d+)%\s*(\d+)%/);
-  if (!hslMatch) return "#000000";
+  if (!hslMatch) {
+    // Check if it's already a hex color
+    if (/^#([0-9A-F]{3}){1,2}$/i.test(hslString)) return hslString.toUpperCase();
+    return "#000000"; // Default black if parsing fails
+  }
 
   let h = parseInt(hslMatch[1]);
   let s = parseInt(hslMatch[2]) / 100;
@@ -42,8 +46,9 @@ function hslToHex(hslString: string) {
 
 export function FinancialSummary() {
   const { activeBoard, isLoadingBoards } = useBoards();
-  const { bills, isLoadingBills } = useBills(); // Use bills hook
-  const [chartColors, setChartColors] = useState<string[]>([]);
+  const { bills, isLoadingBills } = useBills(); 
+  const [donutChartColors, setDonutChartColors] = useState<string[]>([]);
+  const [barChartSpecificColors, setBarChartSpecificColors] = useState<[string, string]>(['#10B981', '#EF4444']); // Default green/red
   const [valueFormatter, setValueFormatter] = useState<(value: number) => string>(() => (value: number) => `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK' })}`);
 
   const categories = useMemo(() => activeBoard?.categories || [], [activeBoard]);
@@ -52,22 +57,29 @@ export function FinancialSummary() {
   useEffect(() => {
     if (typeof window !== "undefined") {
         const style = getComputedStyle(document.documentElement);
-        const colors = [
+        
+        // Colors for Donut Chart (Palette)
+        const donutColorsPalette = [
             hslToHex(style.getPropertyValue('--chart-1').trim()),
             hslToHex(style.getPropertyValue('--chart-2').trim()),
             hslToHex(style.getPropertyValue('--chart-3').trim()),
             hslToHex(style.getPropertyValue('--chart-4').trim()),
             hslToHex(style.getPropertyValue('--chart-5').trim()),
-            hslToHex(style.getPropertyValue('--primary').trim()), // Primary
-            hslToHex(style.getPropertyValue('--accent').trim()), // Accent
-            // Adding more distinct colors if needed from theme
-            hslToHex(style.getPropertyValue('--destructive').trim()), // Destructive
-            hslToHex(style.getPropertyValue('--secondary').trim()), // Secondary (might be light)
+            hslToHex(style.getPropertyValue('--primary').trim()), 
+            hslToHex(style.getPropertyValue('--accent').trim()), 
+            hslToHex(style.getPropertyValue('--destructive').trim()), 
+            hslToHex(style.getPropertyValue('--secondary').trim()),
         ];
-        // Filter out invalid colors and ensure a good default set
-        const validColors = colors.filter(c => c && c !== "#000000" && c !== "#" && c.length > 1);
-        setChartColors(validColors.length > 0 ? validColors : ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#6366F1', '#8B5CF6', '#EC4899']);
+        const validDonutColors = donutColorsPalette.filter(c => c && c !== "#000000" && c !== "#" && c.length > 1);
+        setDonutChartColors(validDonutColors.length > 0 ? validDonutColors : ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#6366F1', '#8B5CF6', '#EC4899']);
 
+        // Specific colors for Bar Chart (Income vs Expense)
+        const incomeColorHex = hslToHex(style.getPropertyValue('--chart-2').trim() || 'hsl(150 60% 60%)'); // Default to a green if CSS var fails
+        const expenseColorHex = hslToHex(style.getPropertyValue('--destructive').trim() || 'hsl(0 84.2% 60.2%)'); // Default to red
+        setBarChartSpecificColors([
+            incomeColorHex === "#000000" ? '#10B981' : incomeColorHex, // Fallback green
+            expenseColorHex === "#000000" ? '#EF4444' : expenseColorHex   // Fallback red
+        ]);
 
         setValueFormatter(() => (value: number) => 
             `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace(/\s*kr$/, '').trim()} kr`
@@ -111,7 +123,7 @@ export function FinancialSummary() {
     return Object.entries(expenseMap).map(([name, value]) => ({ name, value })).filter(item => item.value > 0).sort((a,b) => b.value - a.value);
   }, [transactions, categories]);
 
-  if (isLoadingBoards || isLoadingBills) { // Include isLoadingBills
+  if (isLoadingBoards || isLoadingBills) { 
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -154,7 +166,7 @@ export function FinancialSummary() {
       </Card>
     );
   }
-   if (categories.length === 0) { // This implies activeBoard exists but has no categories
+   if (categories.length === 0) { 
     return (
       <Card>
         <CardHeader>
@@ -173,9 +185,6 @@ export function FinancialSummary() {
     );
   }
   
-  const validChartColors = chartColors.length > 0 ? chartColors : ['#2563eb', '#16a34a', '#f97316', '#dc2626', '#7c3aed', '#db2777', '#0891b2'];
-
-
   const formatCurrency = (value: number) => {
     return `${value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr`;
   };
@@ -246,7 +255,7 @@ export function FinancialSummary() {
 
 
       {(totalIncome > 0 || totalExpenses > 0) && (
-      <Card className="md:col-span-2 lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow"> {/* Changed to col-span-1 for 3-col layout */}
+      <Card className="md:col-span-2 lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow"> 
         <CardHeader>
           <CardTitle className="text-2xl text-primary">Inkomster vs. Utgifter</CardTitle>
           <CardDescription>Jämförelse av dina totala inkomster och utgifter.</CardDescription>
@@ -257,7 +266,7 @@ export function FinancialSummary() {
             data={incomeExpenseData}
             index="name"
             categories={["value"]}
-            colors={validChartColors.length >=2 ? [validChartColors[1], validChartColors[3]] : ['#10B981', '#EF4444']} // Green for income, Red for expenses
+            colors={barChartSpecificColors} // Use specific green/red colors
             yAxisWidth={60}
             valueFormatter={valueFormatter}
             noDataText="Ingen data tillgänglig."
@@ -273,17 +282,17 @@ export function FinancialSummary() {
             <CardTitle className="text-2xl text-primary">Utgiftsfördelning</CardTitle>
             <CardDescription>Hur dina utgifter fördelas mellan kategorier.</CardDescription>
           </CardHeader>
-          <CardContent className="flex items-center justify-center pt-4"> {/* Added pt-4 */}
+          <CardContent className="flex items-center justify-center pt-4"> 
             <DonutChart
-              className="h-80 w-full max-w-2xl" // Increased max-w
+              className="h-80 w-full max-w-2xl" 
               data={expenseBreakdownData}
               category="value"
               index="name"
-              colors={validChartColors} // Use the full palette
+              colors={donutChartColors} // Use the palette for donut breakdown
               valueFormatter={valueFormatter}
               noDataText="Inga utgiftsdata tillgängliga."
-              variant="pie" // Ensure it's a pie
-              label={valueFormatter(expenseBreakdownData.reduce((sum, item) => sum + item.value,0))} // Show total in center
+              variant="pie" 
+              label={valueFormatter(expenseBreakdownData.reduce((sum, item) => sum + item.value,0))} 
             />
           </CardContent>
         </Card>
