@@ -39,7 +39,8 @@ export function FinancialSummary() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [chartColors, setChartColors] = useState<string[]>([]);
-  const [valueFormatter, setValueFormatter] = useState<(value: number) => string>((value: number) => `$${value.toFixed(2)}`);
+  const [valueFormatter, setValueFormatter] = useState<(value: number) => string>(() => (value: number) => `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK' })}`);
+
 
   useEffect(() => {
     const storedCategories = localStorage.getItem('ekonova-categories');
@@ -62,7 +63,7 @@ export function FinancialSummary() {
         setChartColors(colors.filter(c => c !== "#000000")); 
 
         setValueFormatter(() => (value: number) => 
-            `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace('kr', '').trim()} kr`
+            `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace(/\s*kr$/, '').trim()} kr`
         );
     }
   }, []);
@@ -97,7 +98,7 @@ export function FinancialSummary() {
     return Object.entries(expenseMap).map(([name, value]) => ({ name, value })).filter(item => item.value > 0);
   }, [transactions, categories]);
 
-  if (!transactions.length && categories.length === 0 && !localStorage.getItem('ekonova-transactions')) { // Check categories as well
+  if (typeof window !== 'undefined' && !transactions.length && categories.length === 0 && !localStorage.getItem('ekonova-transactions')) {
     return (
       <Card>
         <CardHeader>
@@ -156,6 +157,7 @@ export function FinancialSummary() {
             colors={validChartColors.slice(0,2)}
             yAxisWidth={60}
             valueFormatter={valueFormatter}
+            noDataText="Ingen data tillgänglig."
           />
         </CardContent>
       </Card>
@@ -175,6 +177,7 @@ export function FinancialSummary() {
               index="name"
               colors={validChartColors}
               valueFormatter={valueFormatter}
+              noDataText="Ingen data tillgänglig."
             />
           </CardContent>
         </Card>
@@ -182,3 +185,4 @@ export function FinancialSummary() {
     </div>
   );
 }
+
