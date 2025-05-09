@@ -58,27 +58,34 @@ export function FinancialSummary() {
     if (typeof window !== "undefined") {
         const style = getComputedStyle(document.documentElement);
         
-        // Colors for Donut Chart (Palette)
-        const donutColorsPalette = [
-            hslToHex(style.getPropertyValue('--chart-1').trim()),
-            hslToHex(style.getPropertyValue('--chart-2').trim()),
-            hslToHex(style.getPropertyValue('--chart-3').trim()),
-            hslToHex(style.getPropertyValue('--chart-4').trim()),
-            hslToHex(style.getPropertyValue('--chart-5').trim()),
-            hslToHex(style.getPropertyValue('--primary').trim()), 
-            hslToHex(style.getPropertyValue('--accent').trim()), 
-            hslToHex(style.getPropertyValue('--destructive').trim()), 
-            hslToHex(style.getPropertyValue('--secondary').trim()),
+        // Colors for Donut Chart (Expense Breakdown - should be red-themed)
+        const expenseDonutPaletteHslRaw = [
+            style.getPropertyValue('--destructive').trim(), // Main red from theme (e.g., hsl(0 84.2% 60.2%))
+            style.getPropertyValue('--chart-4').trim(),     // Orange-Yellow from theme (e.g., hsl(43 74% 66%))
+            style.getPropertyValue('--chart-5').trim(),     // Orange from theme (e.g., hsl(27 87% 67%))
+            'hsl(0, 75%, 70%)',                              // Lighter Red variant
+            'hsl(0, 70%, 50%)',                              // Darker Red variant
+            'hsl(350, 70%, 60%)',                            // Pinkish-Red variant
         ];
-        const validDonutColors = donutColorsPalette.filter(c => c && c !== "#000000" && c !== "#" && c.length > 1);
-        setDonutChartColors(validDonutColors.length > 0 ? validDonutColors : ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#6366F1', '#8B5CF6', '#EC4899']);
+
+        const expenseDonutPaletteHex = expenseDonutPaletteHslRaw
+            .map(hslValue => {
+                if (!hslValue) return null; // Handle case where CSS var might be empty
+                return hslToHex(hslValue);
+            })
+            .filter(hex => hex && hex !== "#000000" && hex !== "#" && hex.length > 1) as string[];
+        
+        const fallbackRedPalette = ['#EF4444', '#F87171', '#FB923C', '#DC2626', '#F59E0B', '#F472B6'];
+        setDonutChartColors(expenseDonutPaletteHex.length > 0 ? expenseDonutPaletteHex : fallbackRedPalette);
+
 
         // Specific colors for Bar Chart (Income vs Expense)
-        const incomeColorHex = hslToHex(style.getPropertyValue('--chart-2').trim() || 'hsl(150 60% 60%)'); // Default to a green if CSS var fails
-        const expenseColorHex = hslToHex(style.getPropertyValue('--destructive').trim() || 'hsl(0 84.2% 60.2%)'); // Default to red
+        // Uses --chart-2 (greenish) for income, --destructive (reddish) for expenses
+        const incomeColorHex = hslToHex(style.getPropertyValue('--chart-2').trim() || 'hsl(150 60% 60%)'); 
+        const expenseColorHex = hslToHex(style.getPropertyValue('--destructive').trim() || 'hsl(0 84.2% 60.2%)'); 
         setBarChartSpecificColors([
-            incomeColorHex === "#000000" ? '#10B981' : incomeColorHex, // Fallback green
-            expenseColorHex === "#000000" ? '#EF4444' : expenseColorHex   // Fallback red
+            incomeColorHex === "#000000" || !incomeColorHex ? '#10B981' : incomeColorHex, // Fallback green
+            expenseColorHex === "#000000" || !expenseColorHex ? '#EF4444' : expenseColorHex   // Fallback red
         ]);
 
         setValueFormatter(() => (value: number) => 
@@ -266,7 +273,7 @@ export function FinancialSummary() {
             data={incomeExpenseData}
             index="name"
             categories={["value"]}
-            colors={barChartSpecificColors} // Use specific green/red colors
+            colors={barChartSpecificColors} // Uses green for income, red for expenses
             yAxisWidth={60}
             valueFormatter={valueFormatter}
             noDataText="Ingen data tillgänglig."
@@ -288,7 +295,7 @@ export function FinancialSummary() {
               data={expenseBreakdownData}
               category="value"
               index="name"
-              colors={donutChartColors} // Use the palette for donut breakdown
+              colors={donutChartColors} // Uses the red/warm-themed palette for expenses
               valueFormatter={valueFormatter}
               noDataText="Inga utgiftsdata tillgängliga."
               variant="pie" 
@@ -314,3 +321,4 @@ export function FinancialSummary() {
     </div>
   );
 }
+
