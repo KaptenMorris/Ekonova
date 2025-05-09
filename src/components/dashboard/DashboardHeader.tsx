@@ -25,6 +25,7 @@ import { CreateBoardDialog } from '@/app/dashboard/components/board/CreateBoardD
 import { RenameBoardDialog } from '@/app/dashboard/components/board/RenameBoardDialog';
 import { ShareBoardDialog } from '@/app/dashboard/components/board/ShareBoardDialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
 
 
 export function DashboardHeader() {
@@ -153,7 +154,7 @@ export function DashboardHeader() {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Avbryt</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteBoard} className="bg-destructive hover:bg-destructive/90">
+                    <AlertDialogAction onClick={handleDeleteBoard} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
                       Ja, radera tavlan
                     </AlertDialogAction>
                   </AlertDialogFooter>
