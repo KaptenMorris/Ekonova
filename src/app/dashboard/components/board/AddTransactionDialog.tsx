@@ -32,7 +32,7 @@ interface AddTransactionDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onAddTransaction: (transaction: Omit<Transaction, 'id'>) => void;
-  categories: Category[];
+  categories: Category[]; // Categories for the active board
 }
 
 export function AddTransactionDialog({
@@ -49,11 +49,10 @@ export function AddTransactionDialog({
 
   const handleSubmit = () => {
     if (!title || !amount || !date || !categoryId) {
-      // Basic validation, can be enhanced with react-hook-form
       alert("Vänligen fyll i alla obligatoriska fält.");
       return;
     }
-    const numericAmount = parseFloat(amount.replace(',', '.')); // Allow comma as decimal separator
+    const numericAmount = parseFloat(amount.replace(',', '.')); 
     if (isNaN(numericAmount)) {
       alert("Ogiltigt belopp.");
       return;
@@ -74,20 +73,33 @@ export function AddTransactionDialog({
     setDescription("");
     onClose();
   };
+  
+  const handleClose = () => {
+    // Reset form fields when dialog is closed, not just on submit
+    setTitle("");
+    setAmount("");
+    setDate(new Date());
+    setCategoryId("");
+    setDescription("");
+    onClose();
+  };
+
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+        if (!open) handleClose(); else onClose(); // Call handleClose if dialog is being closed
+    }}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>Lägg till Ny Transaktion</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="title" className="text-right">
+            <Label htmlFor="title-add-trans" className="text-right">
               Titel
             </Label>
             <Input
-              id="title"
+              id="title-add-trans"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="col-span-3"
@@ -95,12 +107,12 @@ export function AddTransactionDialog({
             />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="amount" className="text-right">
+            <Label htmlFor="amount-add-trans" className="text-right">
               Belopp
             </Label>
             <Input
-              id="amount"
-              type="text" // Changed to text to allow comma
+              id="amount-add-trans"
+              type="text" 
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="col-span-3"
@@ -108,7 +120,7 @@ export function AddTransactionDialog({
             />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="date" className="text-right">
+            <Label htmlFor="date-add-trans" className="text-right">
               Datum
             </Label>
             <Popover>
@@ -136,28 +148,28 @@ export function AddTransactionDialog({
             </Popover>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="category" className="text-right">
+            <Label htmlFor="category-add-trans" className="text-right">
               Kategori
             </Label>
             <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger className="col-span-3">
+              <SelectTrigger className="col-span-3" id="category-add-trans">
                 <SelectValue placeholder="Välj en kategori" />
               </SelectTrigger>
               <SelectContent>
-                {categories.map((cat) => (
+                {categories.length > 0 ? categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     {cat.name} ({cat.type === 'income' ? 'Inkomst' : 'Utgift'})
                   </SelectItem>
-                ))}
+                )) : <SelectItem value="no-cat" disabled>Inga kategorier tillgängliga</SelectItem>}
               </SelectContent>
             </Select>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="description" className="text-right">
+            <Label htmlFor="description-add-trans" className="text-right">
               Beskrivning
             </Label>
             <Textarea
-              id="description"
+              id="description-add-trans"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="col-span-3"
@@ -167,7 +179,7 @@ export function AddTransactionDialog({
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button type="button" variant="outline">
+            <Button type="button" variant="outline" onClick={handleClose}>
               Avbryt
             </Button>
           </DialogClose>

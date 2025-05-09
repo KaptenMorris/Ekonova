@@ -2,8 +2,11 @@
 
 import type { Category, Transaction } from "@/types";
 import { useState, useEffect, useMemo } from "react";
+import { useBoards } from "@/hooks/useBoards";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, DonutChart } from '@tremor/react';
+import { Loader2 } from "lucide-react";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 // Helper to convert HSL string to hex for Tremor charts
 function hslToHex(hslString: string) {
@@ -36,19 +39,14 @@ function hslToHex(hslString: string) {
 
 
 export function FinancialSummary() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const { activeBoard, isLoadingBoards } = useBoards();
   const [chartColors, setChartColors] = useState<string[]>([]);
   const [valueFormatter, setValueFormatter] = useState<(value: number) => string>(() => (value: number) => `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK' })}`);
 
+  const categories = useMemo(() => activeBoard?.categories || [], [activeBoard]);
+  const transactions = useMemo(() => activeBoard?.transactions || [], [activeBoard]);
 
   useEffect(() => {
-    const storedCategories = localStorage.getItem('ekonova-categories');
-    if (storedCategories) setCategories(JSON.parse(storedCategories));
-    
-    const storedTransactions = localStorage.getItem('ekonova-transactions');
-    if (storedTransactions) setTransactions(JSON.parse(storedTransactions));
-
     if (typeof window !== "undefined") {
         const style = getComputedStyle(document.documentElement);
         const colors = [
@@ -60,7 +58,7 @@ export function FinancialSummary() {
             hslToHex(style.getPropertyValue('--primary').trim()),
             hslToHex(style.getPropertyValue('--accent').trim()),
         ];
-        setChartColors(colors.filter(c => c !== "#000000")); 
+        setChartColors(colors.filter(c => c !== "#000000" && c !== "#")); 
 
         setValueFormatter(() => (value: number) => 
             `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace(/\s*kr$/, '').trim()} kr`
@@ -98,14 +96,57 @@ export function FinancialSummary() {
     return Object.entries(expenseMap).map(([name, value]) => ({ name, value })).filter(item => item.value > 0);
   }, [transactions, categories]);
 
-  if (typeof window !== 'undefined' && !transactions.length && categories.length === 0 && !localStorage.getItem('ekonova-transactions')) {
+  if (isLoadingBoards) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!activeBoard) {
+     return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Ekonomisk Översikt</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">Välj eller skapa en tavla för att se översikten.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+  
+  if (transactions.length === 0 && categories.length > 0) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Ekonomisk Översikt</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">Ingen transaktionsdata tillgänglig ännu för att visa diagram. Lägg till några transaktioner först!</p>
+           <Alert>
+            <AlertTitle>Inga Transaktioner Ännu</AlertTitle>
+            <AlertDescription>
+                Den här tavlan har inga transaktioner. Lägg till några på kontrollpanelen för att se din ekonomiska översikt.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+   if (categories.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Ekonomisk Översikt</CardTitle>
+        </CardHeader>
+        <CardContent>
+           <Alert>
+            <AlertTitle>Inga Kategorier</AlertTitle>
+            <AlertDescription>
+                Den här tavlan har inga kategorier. Lägg till några på kontrollpanelen först.
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
     );
@@ -146,7 +187,7 @@ export function FinancialSummary() {
       <Card className="md:col-span-2 lg:col-span-2">
         <CardHeader>
           <CardTitle>Inkomster vs. Utgifter</CardTitle>
-          <CardDescription>Månatlig jämförelse av dina inkomster och utgifter.</CardDescription>
+          <CardDescription>Jämförelse av dina inkomster och utgifter för den valda tavlan.</CardDescription>
         </CardHeader>
         <CardContent>
           <BarChart
@@ -167,7 +208,7 @@ export function FinancialSummary() {
         <Card className="md:col-span-2 lg:col-span-3">
           <CardHeader>
             <CardTitle>Utgiftsfördelning</CardTitle>
-            <CardDescription>Hur dina utgifter fördelas mellan kategorier.</CardDescription>
+            <CardDescription>Hur dina utgifter fördelas mellan kategorier för den valda tavlan.</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
             <DonutChart
@@ -185,4 +226,3 @@ export function FinancialSummary() {
     </div>
   );
 }
-

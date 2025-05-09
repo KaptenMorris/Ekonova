@@ -7,31 +7,36 @@ import { AppSidebar } from '@/components/dashboard/AppSidebar';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Loader2 } from 'lucide-react';
+import { useBoards } from '@/hooks/useBoards';
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading } = useMockAuth();
+  const { isAuthenticated, isLoading: isLoadingAuth } = useMockAuth();
+  const { isLoadingBoards } = useBoards(); // Access isLoadingBoards
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (!isLoadingAuth && !isAuthenticated) {
       router.replace('/login');
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoadingAuth, router]);
+
+  // Combine loading states
+  const isLoading = isLoadingAuth || isLoadingBoards;
 
   if (isLoading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <span className="ml-4 text-lg">Laddar data...</span>
       </div>
     );
   }
 
   if (!isAuthenticated) {
-    // This case should ideally not be reached if redirection works, but as a fallback
     return null; 
   }
 

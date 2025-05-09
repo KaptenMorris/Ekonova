@@ -1,13 +1,13 @@
 "use client";
 
 import type { Category, Transaction } from "@/types";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useBoards } from "@/hooks/useBoards";
 import { CategoryColumn } from "./CategoryColumn";
 import { AddTransactionDialog } from "./AddTransactionDialog";
 import { EditTransactionDialog } from "./EditTransactionDialog";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, LayoutGrid, List } from "lucide-react";
-import { v4 as uuidv4 } from 'uuid'; // For generating unique IDs
+import { PlusCircle, List, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,20 +26,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-
-// Sample initial data
-const initialCategories: Category[] = [
-  { id: uuidv4(), name: "Inkomst", type: "income", icon: "TrendingUp" },
-  { id: uuidv4(), name: "Boende", type: "expense", icon: "Home" },
-  { id: uuidv4(), name: "Mat & Livsmedel", type: "expense", icon: "Utensils" },
-  { id: uuidv4(), name: "Transport", type: "expense", icon: "Car" },
-  { id: uuidv4(), name: "Nöje", type: "expense", icon: "Film" },
-];
 
 export function BoardView() {
-  const [categories, setCategories] = useState<Category[]>(initialCategories);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const { 
+    activeBoard, 
+    isLoadingBoards,
+    addCategoryToActiveBoard, 
+    deleteCategoryFromActiveBoard,
+    addTransactionToActiveBoard,
+    updateTransactionInActiveBoard,
+    deleteTransactionFromActiveBoard
+  } = useBoards();
+
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
@@ -47,47 +47,17 @@ export function BoardView() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryType, setNewCategoryType] = useState<'income' | 'expense'>("expense");
 
-  // Persist data to localStorage
-  useEffect(() => {
-    const storedCategories = localStorage.getItem('ekonova-categories');
-    if (storedCategories) {
-      setCategories(JSON.parse(storedCategories));
-    } else {
-      localStorage.setItem('ekonova-categories', JSON.stringify(initialCategories));
-      setCategories(initialCategories); 
-    }
-
-    const storedTransactions = localStorage.getItem('ekonova-transactions');
-    if (storedTransactions) {
-      setTransactions(JSON.parse(storedTransactions));
-    }
-  }, []);
-
-  useEffect(() => {
-    // Avoid setting initialCategories if categories already exist from localStorage
-    if (categories.length > 0 || localStorage.getItem('ekonova-categories')) {
-        localStorage.setItem('ekonova-categories', JSON.stringify(categories));
-    }
-  }, [categories]);
-
-  useEffect(() => {
-    localStorage.setItem('ekonova-transactions', JSON.stringify(transactions));
-  }, [transactions]);
-
-
   const handleAddTransaction = (transaction: Omit<Transaction, 'id'>) => {
-    setTransactions([...transactions, { ...transaction, id: uuidv4() }]);
+    addTransactionToActiveBoard(transaction);
   };
 
   const handleEditTransaction = (updatedTransaction: Transaction) => {
-    setTransactions(
-      transactions.map((t) => (t.id === updatedTransaction.id ? updatedTransaction : t))
-    );
+    updateTransactionInActiveBoard(updatedTransaction);
     setEditingTransaction(null);
   };
 
   const handleDeleteTransaction = (transactionId: string) => {
-    setTransactions(transactions.filter((t) => t.id !== transactionId));
+    deleteTransactionFromActiveBoard(transactionId);
   };
 
   const openEditModal = (transaction: Transaction) => {
@@ -96,41 +66,60 @@ export function BoardView() {
 
   const handleAddCategory = () => {
     if (newCategoryName.trim() === "") return;
-    const newCategory: Category = {
-      id: uuidv4(),
+    addCategoryToActiveBoard({
       name: newCategoryName,
       type: newCategoryType,
-      // icon: "Package" // Default icon or let user choose later
-    };
-    setCategories([...categories, newCategory]);
+      // icon: "Package" // Default icon handled by constants or let user choose later
+    });
     setNewCategoryName("");
     setNewCategoryType("expense"); // Reset to default
     setIsAddCategoryOpen(false);
   };
   
   const handleDeleteCategory = (categoryId: string) => {
-    // Also delete transactions associated with this category
-    setTransactions(prev => prev.filter(t => t.categoryId !== categoryId));
-    setCategories(prev => prev.filter(c => c.id !== categoryId));
+    deleteCategoryFromActiveBoard(categoryId);
   };
 
+  const categories = useMemo(() => activeBoard?.categories || [], [activeBoard]);
+  const transactions = useMemo(() => activeBoard?.transactions || [], [activeBoard]);
 
   const incomeCategories = useMemo(() => categories.filter(c => c.type === 'income'), [categories]);
   const expenseCategories = useMemo(() => categories.filter(c => c.type === 'expense'), [categories]);
+
+  if (isLoadingBoards) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!activeBoard) {
+    return (
+        <div className="flex flex-col items-center justify-center h-full">
+            <Alert variant="destructive" className="max-w-md">
+                <AlertTitle>Ingen tavla vald</AlertTitle>
+                <AlertDescription>
+                    Välj en tavla från menyn ovan eller skapa en ny för att börja.
+                </AlertDescription>
+            </Alert>
+        </div>
+    );
+  }
 
 
   return (
     <div className="flex h-full flex-col">
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-semibold text-foreground">Transaktionstavla</h2>
+        {/* Title now comes from DashboardHeader based on active board name */}
         <div className="flex gap-2">
           <Button onClick={() => setIsAddTransactionOpen(true)} variant="outline">
-            <PlusCircle className="mr-2 h-4 w-4" /> Lägg till Transaktion
+            <PlusCircle className="mr-2 h-4 w-4" /> Ny Transaktion
           </Button>
            <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
-                <List className="mr-2 h-4 w-4" /> Lägg till Kategori
+                <List className="mr-2 h-4 w-4" /> Ny Kategori
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -172,6 +161,14 @@ export function BoardView() {
       </div>
 
       <div className="flex-1 overflow-x-auto pb-4">
+        {categories.length === 0 ? (
+             <Alert>
+                <AlertTitle>Dags att organisera!</AlertTitle>
+                <AlertDescription>
+                    Den här tavlan har inga kategorier än. Klicka på "Ny Kategori" för att lägga till din första.
+                </AlertDescription>
+            </Alert>
+        ) : (
         <div className="flex min-w-max gap-4">
           {incomeCategories.map((category) => (
             <CategoryColumn
@@ -194,6 +191,7 @@ export function BoardView() {
             />
           ))}
         </div>
+        )}
       </div>
       
       <AddTransactionDialog
