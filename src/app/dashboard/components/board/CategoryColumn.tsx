@@ -49,7 +49,7 @@ export function CategoryColumn({
         </div>
          <AlertDialog>
           <AlertDialogTrigger asChild>
-             {(category.name !== "Income") && /* Prevent deleting default Income category for now */
+             {(category.name !== "Inkomst") && /* Prevent deleting default Income category for now */
               <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
                 <Trash2 size={16} />
               </Button>
@@ -57,15 +57,15 @@ export function CategoryColumn({
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogTitle>Är du säker?</AlertDialogTitle>
               <AlertDialogDescription>
-                This action will delete the category "{category.name}" and all its transactions. This cannot be undone.
+                Denna åtgärd kommer att radera kategorin "{category.name}" och alla dess transaktioner. Detta kan inte ångras.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>Avbryt</AlertDialogCancel>
               <AlertDialogAction onClick={() => onDeleteCategory(category.id)} className="bg-destructive hover:bg-destructive/90">
-                Delete
+                Radera
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -74,7 +74,7 @@ export function CategoryColumn({
       <CardContent className="p-0 flex-1">
         <ScrollArea className="h-[calc(100vh-300px)] md:h-[calc(100vh-280px)] p-4"> {/* Adjust height as needed */}
           {transactions.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-10">No transactions yet.</p>
+            <p className="text-sm text-muted-foreground text-center py-10">Inga transaktioner än.</p>
           ) : (
             <div className="space-y-3">
               {transactions.map((transaction) => (
@@ -92,9 +92,9 @@ export function CategoryColumn({
       </CardContent>
       <CardFooter className="p-4 border-t">
         <div className="flex justify-between w-full text-sm font-medium">
-          <span>Total:</span>
+          <span>Totalt:</span>
           <span className={category.type === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-            {category.type === 'income' ? '+' : '-'}${Math.abs(totalAmount).toFixed(2)}
+            {category.type === 'income' ? '+' : '-'}${Math.abs(totalAmount).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
       </CardFooter>

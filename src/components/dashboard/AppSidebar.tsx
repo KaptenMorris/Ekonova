@@ -22,10 +22,10 @@ export function AppSidebar() {
   const pathname = usePathname();
 
   const menuItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/dashboard/overview', label: 'Financial Overview', icon: LineChart },
-    { href: '/dashboard/budget-ai', label: 'AI Budget Advisor', icon: Lightbulb },
-    // { href: '/dashboard/settings', label: 'Settings', icon: Settings }, // Placeholder
+    { href: '/dashboard', label: 'Kontrollpanel', icon: LayoutDashboard },
+    { href: '/dashboard/overview', label: 'Ekonomisk Översikt', icon: LineChart },
+    { href: '/dashboard/budget-ai', label: 'AI Budgetrådgivare', icon: Lightbulb },
+    // { href: '/dashboard/settings', label: 'Inställningar', icon: Settings }, // Placeholder
   ];
 
   return (
@@ -68,7 +68,7 @@ export function AppSidebar() {
         </div> */}
         <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive" onClick={logout}>
           <LogOut className="mr-2 h-5 w-5" />
-          Logout
+          Logga Ut
         </Button>
       </SidebarFooter>
     </Sidebar>

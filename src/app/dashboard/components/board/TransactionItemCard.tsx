@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Edit3, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { format, parseISO } from 'date-fns';
+import { sv } from 'date-fns/locale';
 
 interface TransactionItemCardProps {
   transaction: Transaction;
@@ -15,7 +16,7 @@ interface TransactionItemCardProps {
 }
 
 export function TransactionItemCard({ transaction, categoryType, onEdit, onDelete }: TransactionItemCardProps) {
-  const formattedDate = transaction.date ? format(parseISO(transaction.date), "MMM d, yyyy") : 'N/A';
+  const formattedDate = transaction.date ? format(parseISO(transaction.date), "d MMM yyyy", { locale: sv }) : 'Saknas';
   const amountColor = categoryType === 'income' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
   const amountPrefix = categoryType === 'income' ? '+' : '-';
 
@@ -27,7 +28,7 @@ export function TransactionItemCard({ transaction, categoryType, onEdit, onDelet
           <CardDescription className="text-xs text-muted-foreground">{formattedDate}</CardDescription>
         </div>
         <div className={`text-lg font-bold ${amountColor}`}>
-          {amountPrefix}${Math.abs(transaction.amount).toFixed(2)}
+          {amountPrefix}${Math.abs(transaction.amount).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
       </CardHeader>
       <CardContent className="p-4 pt-0">
@@ -37,11 +38,11 @@ export function TransactionItemCard({ transaction, categoryType, onEdit, onDelet
         <div className="flex justify-end space-x-2">
           <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={onEdit}>
             <Edit3 size={16} />
-            <span className="sr-only">Edit</span>
+            <span className="sr-only">Redigera</span>
           </Button>
           <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onDelete}>
             <Trash2 size={16} />
-            <span className="sr-only">Delete</span>
+            <span className="sr-only">Radera</span>
           </Button>
         </div>
       </CardContent>

@@ -3,8 +3,7 @@
 import type { Category, Transaction } from "@/types";
 import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { BarChart, PieChart, DonutChart } from '@tremor/react'; // Using Tremor for charts as Shadcn chart setup is more involved for quick scaffolding and Tremor is good for dashboards.
-// If Tremor is not allowed/installed, this needs to be replaced with Recharts as used in components/ui/chart.tsx
+import { BarChart, DonutChart } from '@tremor/react';
 
 // Helper to convert HSL string to hex for Tremor charts
 function hslToHex(hslString: string) {
@@ -40,6 +39,7 @@ export function FinancialSummary() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [chartColors, setChartColors] = useState<string[]>([]);
+  const [valueFormatter, setValueFormatter] = useState<(value: number) => string>((value: number) => `$${value.toFixed(2)}`);
 
   useEffect(() => {
     const storedCategories = localStorage.getItem('ekonova-categories');
@@ -48,7 +48,6 @@ export function FinancialSummary() {
     const storedTransactions = localStorage.getItem('ekonova-transactions');
     if (storedTransactions) setTransactions(JSON.parse(storedTransactions));
 
-    // Dynamically get chart colors from CSS variables
     if (typeof window !== "undefined") {
         const style = getComputedStyle(document.documentElement);
         const colors = [
@@ -57,13 +56,15 @@ export function FinancialSummary() {
             hslToHex(style.getPropertyValue('--chart-3').trim()),
             hslToHex(style.getPropertyValue('--chart-4').trim()),
             hslToHex(style.getPropertyValue('--chart-5').trim()),
-            // Add more if needed, or cycle through them
             hslToHex(style.getPropertyValue('--primary').trim()),
             hslToHex(style.getPropertyValue('--accent').trim()),
         ];
-        setChartColors(colors.filter(c => c !== "#000000")); // Filter out invalid conversions
-    }
+        setChartColors(colors.filter(c => c !== "#000000")); 
 
+        setValueFormatter(() => (value: number) => 
+            `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace('kr', '').trim()} kr`
+        );
+    }
   }, []);
 
   const totalIncome = useMemo(() => {
@@ -81,8 +82,8 @@ export function FinancialSummary() {
   const netBalance = totalIncome - totalExpenses;
 
   const incomeExpenseData = [
-    { name: "Total Income", value: totalIncome },
-    { name: "Total Expenses", value: totalExpenses },
+    { name: "Total Inkomst", value: totalIncome },
+    { name: "Totala Utgifter", value: totalExpenses },
   ];
 
   const expenseBreakdownData = useMemo(() => {
@@ -93,17 +94,17 @@ export function FinancialSummary() {
         expenseMap[category.name] = (expenseMap[category.name] || 0) + t.amount;
       }
     });
-    return Object.entries(expenseMap).map(([name, value]) => ({ name, value }));
+    return Object.entries(expenseMap).map(([name, value]) => ({ name, value })).filter(item => item.value > 0);
   }, [transactions, categories]);
 
-  if (!transactions.length && !categories.length) {
+  if (!transactions.length && categories.length === 0 && !localStorage.getItem('ekonova-transactions')) { // Check categories as well
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Financial Overview</CardTitle>
+          <CardTitle>Ekonomisk Översikt</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">No transaction data available yet to display charts. Add some transactions first!</p>
+          <p className="text-muted-foreground">Ingen transaktionsdata tillgänglig ännu för att visa diagram. Lägg till några transaktioner först!</p>
         </CardContent>
       </Card>
     );
@@ -111,65 +112,69 @@ export function FinancialSummary() {
   
   const validChartColors = chartColors.length > 0 ? chartColors : ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#6366F1'];
 
+  const formatCurrency = (value: number) => {
+    return `${value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr`;
+  };
+
 
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
       <Card className="lg:col-span-1">
         <CardHeader>
-          <CardTitle>Summary</CardTitle>
+          <CardTitle>Sammanfattning</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-            <span className="font-medium text-secondary-foreground">Total Income</span>
-            <span className="font-bold text-green-500 text-xl">${totalIncome.toFixed(2)}</span>
+            <span className="font-medium text-secondary-foreground">Total Inkomst</span>
+            <span className="font-bold text-green-500 text-xl">{formatCurrency(totalIncome)}</span>
           </div>
           <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-            <span className="font-medium text-secondary-foreground">Total Expenses</span>
-            <span className="font-bold text-red-500 text-xl">${totalExpenses.toFixed(2)}</span>
+            <span className="font-medium text-secondary-foreground">Totala Utgifter</span>
+            <span className="font-bold text-red-500 text-xl">{formatCurrency(totalExpenses)}</span>
           </div>
           <div className="flex justify-between items-center p-3 bg-primary/10 rounded-lg">
-            <span className="font-medium text-primary">Net Balance</span>
+            <span className="font-medium text-primary">Nettosaldo</span>
             <span className={`font-bold text-xl ${netBalance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-              ${netBalance.toFixed(2)}
+              {formatCurrency(netBalance)}
             </span>
           </div>
         </CardContent>
       </Card>
 
+      {(totalIncome > 0 || totalExpenses > 0) && (
       <Card className="md:col-span-2 lg:col-span-2">
         <CardHeader>
-          <CardTitle>Income vs. Expenses</CardTitle>
-          <CardDescription>Monthly comparison of your income and expenses.</CardDescription>
+          <CardTitle>Inkomster vs. Utgifter</CardTitle>
+          <CardDescription>Månatlig jämförelse av dina inkomster och utgifter.</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Using BarChart from Tremor for simpler setup. Recharts version is more verbose. */}
           <BarChart
             className="mt-6 h-72"
             data={incomeExpenseData}
             index="name"
             categories={["value"]}
-            colors={validChartColors.slice(0,2)} // Using first two colors
-            yAxisWidth={48}
-            valueFormatter={(number: number) => `$${Intl.NumberFormat('us').format(number).toString()}`}
+            colors={validChartColors.slice(0,2)}
+            yAxisWidth={60}
+            valueFormatter={valueFormatter}
           />
         </CardContent>
       </Card>
+      )}
       
       {expenseBreakdownData.length > 0 && (
         <Card className="md:col-span-2 lg:col-span-3">
           <CardHeader>
-            <CardTitle>Expense Breakdown</CardTitle>
-            <CardDescription>How your expenses are distributed across categories.</CardDescription>
+            <CardTitle>Utgiftsfördelning</CardTitle>
+            <CardDescription>Hur dina utgifter fördelas mellan kategorier.</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
-            {/* Using DonutChart from Tremor */}
             <DonutChart
               className="mt-6 h-80 w-full max-w-lg"
               data={expenseBreakdownData}
               category="value"
               index="name"
               colors={validChartColors}
-              valueFormatter={(number: number) => `$${Intl.NumberFormat('us').format(number).toString()}`}
+              valueFormatter={valueFormatter}
             />
           </CardContent>
         </Card>
@@ -177,11 +182,3 @@ export function FinancialSummary() {
     </div>
   );
 }
-
-// NOTE: Tremor is used here for charts for simplicity.
-// If strictly Shadcn/Recharts is required, the chart implementation would be similar to `components/ui/chart.tsx`
-// but tailored for Bar and Pie/Donut charts using the data prepared here.
-// Example using Shadcn/Recharts would involve:
-// import { Bar, BarChart as RechartsBarChart, Pie, PieChart as RechartsPieChart, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, Cell } from 'recharts';
-// import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
-// And then constructing the charts with these components.

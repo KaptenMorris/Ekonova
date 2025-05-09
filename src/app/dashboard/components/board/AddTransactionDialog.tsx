@@ -25,6 +25,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { CalendarIcon } from "lucide-react"
 import { format } from "date-fns"
+import { sv } from "date-fns/locale";
 import { cn } from "@/lib/utils"
 
 interface AddTransactionDialogProps {
@@ -49,12 +50,12 @@ export function AddTransactionDialog({
   const handleSubmit = () => {
     if (!title || !amount || !date || !categoryId) {
       // Basic validation, can be enhanced with react-hook-form
-      alert("Please fill all required fields.");
+      alert("Vänligen fyll i alla obligatoriska fält.");
       return;
     }
-    const numericAmount = parseFloat(amount);
+    const numericAmount = parseFloat(amount.replace(',', '.')); // Allow comma as decimal separator
     if (isNaN(numericAmount)) {
-      alert("Invalid amount.");
+      alert("Ogiltigt belopp.");
       return;
     }
 
@@ -78,37 +79,37 @@ export function AddTransactionDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>Add New Transaction</DialogTitle>
+          <DialogTitle>Lägg till Ny Transaktion</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="title" className="text-right">
-              Title
+              Titel
             </Label>
             <Input
               id="title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="col-span-3"
-              placeholder="e.g., Salary, Groceries"
+              placeholder="t.ex., Lön, Matvaror"
             />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="amount" className="text-right">
-              Amount
+              Belopp
             </Label>
             <Input
               id="amount"
-              type="number"
+              type="text" // Changed to text to allow comma
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="col-span-3"
-              placeholder="e.g., 50.00"
+              placeholder="t.ex., 50.00"
             />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="date" className="text-right">
-              Date
+              Datum
             </Label>
             <Popover>
               <PopoverTrigger asChild>
@@ -120,7 +121,7 @@ export function AddTransactionDialog({
                   )}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {date ? format(date, "PPP") : <span>Pick a date</span>}
+                  {date ? format(date, "PPP", { locale: sv }) : <span>Välj ett datum</span>}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
@@ -129,22 +130,23 @@ export function AddTransactionDialog({
                   selected={date}
                   onSelect={setDate}
                   initialFocus
+                  locale={sv}
                 />
               </PopoverContent>
             </Popover>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="category" className="text-right">
-              Category
+              Kategori
             </Label>
             <Select value={categoryId} onValueChange={setCategoryId}>
               <SelectTrigger className="col-span-3">
-                <SelectValue placeholder="Select a category" />
+                <SelectValue placeholder="Välj en kategori" />
               </SelectTrigger>
               <SelectContent>
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
-                    {cat.name} ({cat.type})
+                    {cat.name} ({cat.type === 'income' ? 'Inkomst' : 'Utgift'})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -152,24 +154,24 @@ export function AddTransactionDialog({
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="description" className="text-right">
-              Description
+              Beskrivning
             </Label>
             <Textarea
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="col-span-3"
-              placeholder="Optional details about the transaction"
+              placeholder="Frivilliga detaljer om transaktionen"
             />
           </div>
         </div>
         <DialogFooter>
           <DialogClose asChild>
             <Button type="button" variant="outline">
-              Cancel
+              Avbryt
             </Button>
           </DialogClose>
-          <Button type="submit" onClick={handleSubmit}>Add Transaction</Button>
+          <Button type="submit" onClick={handleSubmit}>Lägg till Transaktion</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

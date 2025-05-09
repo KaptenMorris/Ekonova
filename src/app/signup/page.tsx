@@ -44,19 +44,19 @@ export default function SignupPage() {
       </div>
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold text-primary">Create Your Account</CardTitle>
-          <CardDescription>Join Ekonova and take control of your finances.</CardDescription>
+          <CardTitle className="text-3xl font-bold text-primary">Skapa Ditt Konto</CardTitle>
+          <CardDescription>Gå med i Ekonova och ta kontroll över din ekonomi.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
+              <Label htmlFor="name">Fullständigt Namn</Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input 
                   id="name" 
                   type="text" 
-                  placeholder="Your Name" 
+                  placeholder="Ditt Namn" 
                   required 
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -65,13 +65,13 @@ export default function SignupPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">E-post</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input 
                   id="email" 
                   type="email" 
-                  placeholder="you@example.com" 
+                  placeholder="du@exempel.com" 
                   required 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -80,7 +80,7 @@ export default function SignupPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Lösenord</Label>
               <div className="relative">
                 <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input 
@@ -95,15 +95,15 @@ export default function SignupPage() {
               </div>
             </div>
             <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6">
-              <UserPlus className="mr-2 h-5 w-5" /> Sign Up
+              <UserPlus className="mr-2 h-5 w-5" /> Registrera Dig
             </Button>
           </form>
         </CardContent>
         <CardFooter className="flex flex-col items-center space-y-2">
           <p className="text-sm text-muted-foreground">
-            Already have an account?{" "}
+            Har du redan ett konto?{" "}
             <Link href="/login" className="font-semibold text-primary hover:underline">
-              Log In
+              Logga In
             </Link>
           </p>
         </CardFooter>

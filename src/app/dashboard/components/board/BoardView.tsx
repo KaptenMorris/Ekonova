@@ -30,11 +30,11 @@ import {
 
 // Sample initial data
 const initialCategories: Category[] = [
-  { id: uuidv4(), name: "Income", type: "income", icon: "TrendingUp" },
-  { id: uuidv4(), name: "Housing", type: "expense", icon: "Home" },
-  { id: uuidv4(), name: "Food & Groceries", type: "expense", icon: "Utensils" },
-  { id: uuidv4(), name: "Transportation", type: "expense", icon: "Car" },
-  { id: uuidv4(), name: "Entertainment", type: "expense", icon: "Film" },
+  { id: uuidv4(), name: "Inkomst", type: "income", icon: "TrendingUp" },
+  { id: uuidv4(), name: "Boende", type: "expense", icon: "Home" },
+  { id: uuidv4(), name: "Mat & Livsmedel", type: "expense", icon: "Utensils" },
+  { id: uuidv4(), name: "Transport", type: "expense", icon: "Car" },
+  { id: uuidv4(), name: "Nöje", type: "expense", icon: "Film" },
 ];
 
 export function BoardView() {
@@ -53,7 +53,8 @@ export function BoardView() {
     if (storedCategories) {
       setCategories(JSON.parse(storedCategories));
     } else {
-      setCategories(initialCategories); // Ensure initial data if nothing in LS
+      localStorage.setItem('ekonova-categories', JSON.stringify(initialCategories));
+      setCategories(initialCategories); 
     }
 
     const storedTransactions = localStorage.getItem('ekonova-transactions');
@@ -63,7 +64,10 @@ export function BoardView() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('ekonova-categories', JSON.stringify(categories));
+    // Avoid setting initialCategories if categories already exist from localStorage
+    if (categories.length > 0 || localStorage.getItem('ekonova-categories')) {
+        localStorage.setItem('ekonova-categories', JSON.stringify(categories));
+    }
   }, [categories]);
 
   useEffect(() => {
@@ -100,6 +104,7 @@ export function BoardView() {
     };
     setCategories([...categories, newCategory]);
     setNewCategoryName("");
+    setNewCategoryType("expense"); // Reset to default
     setIsAddCategoryOpen(false);
   };
   
@@ -117,49 +122,49 @@ export function BoardView() {
   return (
     <div className="flex h-full flex-col">
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-semibold text-foreground">Transaction Board</h2>
+        <h2 className="text-2xl font-semibold text-foreground">Transaktionstavla</h2>
         <div className="flex gap-2">
           <Button onClick={() => setIsAddTransactionOpen(true)} variant="outline">
-            <PlusCircle className="mr-2 h-4 w-4" /> Add Transaction
+            <PlusCircle className="mr-2 h-4 w-4" /> Lägg till Transaktion
           </Button>
            <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
-                <List className="mr-2 h-4 w-4" /> Add Category
+                <List className="mr-2 h-4 w-4" /> Lägg till Kategori
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add New Category</DialogTitle>
+                <DialogTitle>Lägg till Ny Kategori</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div>
-                  <Label htmlFor="categoryName">Category Name</Label>
+                  <Label htmlFor="categoryName">Kategorinamn</Label>
                   <Input 
                     id="categoryName" 
                     value={newCategoryName} 
                     onChange={(e) => setNewCategoryName(e.target.value)}
-                    placeholder="e.g., Utilities"
+                    placeholder="t.ex., Räkningar"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="categoryType">Category Type</Label>
+                  <Label htmlFor="categoryType">Kategorityp</Label>
                    <Select value={newCategoryType} onValueChange={(value: 'income' | 'expense') => setNewCategoryType(value)}>
                     <SelectTrigger id="categoryType">
-                      <SelectValue placeholder="Select type" />
+                      <SelectValue placeholder="Välj typ" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="income">Income</SelectItem>
-                      <SelectItem value="expense">Expense</SelectItem>
+                      <SelectItem value="income">Inkomst</SelectItem>
+                      <SelectItem value="expense">Utgift</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
               <DialogFooter>
                 <DialogClose asChild>
-                  <Button variant="ghost">Cancel</Button>
+                  <Button variant="ghost">Avbryt</Button>
                 </DialogClose>
-                <Button onClick={handleAddCategory}>Add Category</Button>
+                <Button onClick={handleAddCategory}>Lägg till Kategori</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

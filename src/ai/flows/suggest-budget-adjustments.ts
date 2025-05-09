@@ -12,13 +12,13 @@ import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const SuggestBudgetAdjustmentsInputSchema = z.object({
-  income: z.number().describe('Total monthly income.'),
+  income: z.number().describe('Total månadsinkomst.'),
   expenses: z.array(
     z.object({
-      category: z.string().describe('Category of the expense.'),
-      amount: z.number().describe('Amount spent on the category.'),
+      category: z.string().describe('Utgiftskategori.'),
+      amount: z.number().describe('Belopp spenderat i kategorin.'),
     })
-  ).describe('List of monthly expenses with category and amount.'),
+  ).describe('Lista över månatliga utgifter med kategori och belopp.'),
 });
 
 export type SuggestBudgetAdjustmentsInput = z.infer<typeof SuggestBudgetAdjustmentsInputSchema>;
@@ -26,14 +26,14 @@ export type SuggestBudgetAdjustmentsInput = z.infer<typeof SuggestBudgetAdjustme
 const SuggestBudgetAdjustmentsOutputSchema = z.object({
   suggestions: z.array(
     z.object({
-      category: z.string().describe('Category to adjust.'),
+      category: z.string().describe('Kategori att justera.'),
       adjustment: z
         .string()
         .describe(
-          'Suggestion for adjusting the budget in this category, including specific amount and reasoning.'
+          'Förslag för att justera budgeten i denna kategori, inklusive specifikt belopp och motivering.'
         ),
     })
-  ).describe('List of budget adjustment suggestions.'),
+  ).describe('Lista över budgetjusteringsförslag.'),
 });
 
 export type SuggestBudgetAdjustmentsOutput = z.infer<typeof SuggestBudgetAdjustmentsOutputSchema>;
@@ -46,15 +46,15 @@ const prompt = ai.definePrompt({
   name: 'suggestBudgetAdjustmentsPrompt',
   input: {schema: SuggestBudgetAdjustmentsInputSchema},
   output: {schema: SuggestBudgetAdjustmentsOutputSchema},
-  prompt: `You are a personal finance advisor. Analyze the user's income and expenses and provide suggestions for adjusting their budget to improve their financial health.
+  prompt: `Du är en personlig ekonomisk rådgivare. Analysera användarens inkomster och utgifter och ge förslag på hur de kan justera sin budget för att förbättra sin ekonomiska hälsa.
 
-  Income: {{income}}
-  Expenses:
+  Inkomst: {{income}}
+  Utgifter:
   {{#each expenses}}
-  - Category: {{category}}, Amount: {{amount}}
+  - Kategori: {{category}}, Belopp: {{amount}}
   {{/each}}
 
-  Provide specific and actionable suggestions. Focus on areas where the user is overspending or where they can cut back. Include the amount to adjust and reasoning.
+  Ge specifika och handlingsbara förslag. Fokusera på områden där användaren spenderar för mycket eller där de kan dra ner. Inkludera belopp att justera och motivering.
 `,
 });
 

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Loader2, Lightbulb, Zap } from "lucide-react";
-import { suggestBudgetAdjustments, type SuggestBudgetAdjustmentsInput } from "@/ai/flows/suggest-budget-adjustments"; // Assuming this path is correct
+import { suggestBudgetAdjustments, type SuggestBudgetAdjustmentsInput } from "@/ai/flows/suggest-budget-adjustments"; 
 
 export function BudgetAdvisor() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -46,7 +46,7 @@ export function BudgetAdvisor() {
       .filter(exp => exp.amount > 0); // Only include categories with expenses
 
     if (totalIncome <= 0 && expensesByCategory.length === 0) {
-        setError("Please add some income and expense data before requesting suggestions.");
+        setError("Lägg till inkomst- och utgiftsdata innan du begär förslag.");
         setIsLoading(false);
         return;
     }
@@ -61,7 +61,7 @@ export function BudgetAdvisor() {
       setSuggestions(result.suggestions);
     } catch (e) {
       console.error("Error getting AI suggestions:", e);
-      setError("Failed to get budget suggestions. Please try again later.");
+      setError("Kunde inte hämta budgetförslag. Försök igen senare.");
     } finally {
       setIsLoading(false);
     }
@@ -72,10 +72,10 @@ export function BudgetAdvisor() {
       <CardHeader>
         <CardTitle className="flex items-center text-2xl font-semibold">
           <Lightbulb className="mr-3 h-7 w-7 text-accent" />
-          AI Budget Advisor
+          AI Budgetrådgivare
         </CardTitle>
         <CardDescription>
-          Get personalized suggestions to optimize your budget based on your spending habits.
+          Få personliga förslag för att optimera din budget baserat på dina utgiftsvanor.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -86,20 +86,20 @@ export function BudgetAdvisor() {
             ) : (
               <Zap className="mr-2 h-5 w-5" />
             )}
-            Get Smart Suggestions
+            Få Smarta Förslag
           </Button>
         </div>
 
         {error && (
           <Alert variant="destructive" className="mb-6">
-            <AlertTitle>Error</Alert</AlertTitle>
+            <AlertTitle>Fel</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
         {suggestions && suggestions.length > 0 && (
           <div>
-            <h3 className="mb-4 text-xl font-semibold text-primary">Here are your personalized suggestions:</h3>
+            <h3 className="mb-4 text-xl font-semibold text-primary">Här är dina personliga förslag:</h3>
             <div className="space-y-4">
               {suggestions.map((suggestion, index) => (
                 <Card key={index} className="bg-secondary/50">
@@ -117,8 +117,8 @@ export function BudgetAdvisor() {
         
         {suggestions && suggestions.length === 0 && !error && !isLoading && (
              <Alert>
-                <AlertTitle>No specific suggestions right now!</AlertTitle>
-                <AlertDescription>Your budget looks balanced, or there isn't enough data for specific advice. Keep tracking!</AlertDescription>
+                <AlertTitle>Inga specifika förslag just nu!</AlertTitle>
+                <AlertDescription>Din budget ser balanserad ut, eller så finns det inte tillräckligt med data för specifika råd. Fortsätt spåra!</AlertDescription>
             </Alert>
         )}
       </CardContent>

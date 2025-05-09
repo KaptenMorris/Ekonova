@@ -14,10 +14,10 @@ export function DashboardHeader() {
   const pathname = usePathname();
   // const { onOpen } = useTransactionModal(); // Example for a global modal
 
-  let pageTitle = "Dashboard";
-  if (pathname.includes("/overview")) pageTitle = "Financial Overview";
-  if (pathname.includes("/budget-ai")) pageTitle = "AI Budget Advisor";
-  if (pathname.includes("/settings")) pageTitle = "Settings";
+  let pageTitle = "Kontrollpanel";
+  if (pathname.includes("/overview")) pageTitle = "Ekonomisk Översikt";
+  if (pathname.includes("/budget-ai")) pageTitle = "AI Budgetrådgivare";
+  if (pathname.includes("/settings")) pageTitle = "Inställningar";
 
 
   return (

@@ -43,19 +43,19 @@ export default function LoginPage() {
       </div>
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold text-primary">Welcome Back!</CardTitle>
-          <CardDescription>Log in to manage your finances with Ekonova.</CardDescription>
+          <CardTitle className="text-3xl font-bold text-primary">Välkommen Tillbaka!</CardTitle>
+          <CardDescription>Logga in för att hantera din ekonomi med Ekonova.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">E-post</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input 
                   id="email" 
                   type="email" 
-                  placeholder="you@example.com" 
+                  placeholder="du@exempel.com" 
                   required 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -64,7 +64,7 @@ export default function LoginPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Lösenord</Label>
                <div className="relative">
                 <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input 
@@ -79,15 +79,15 @@ export default function LoginPage() {
               </div>
             </div>
             <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6">
-              <LogIn className="mr-2 h-5 w-5" /> Log In
+              <LogIn className="mr-2 h-5 w-5" /> Logga In
             </Button>
           </form>
         </CardContent>
         <CardFooter className="flex flex-col items-center space-y-2">
           <p className="text-sm text-muted-foreground">
-            Don't have an account?{" "}
+            Har du inget konto?{" "}
             <Link href="/signup" className="font-semibold text-primary hover:underline">
-              Sign Up
+              Registrera Dig
             </Link>
           </p>
         </CardFooter>
