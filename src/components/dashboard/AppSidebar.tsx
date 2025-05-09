@@ -2,6 +2,7 @@
 "use client";
 
 import Link from 'next/link';
+import { useState } from 'react';
 import {
   Sidebar,
   SidebarHeader,
@@ -14,14 +15,29 @@ import {
 } from '@/components/ui/sidebar';
 import { Logo } from '@/components/shared/Logo';
 import { useMockAuth } from '@/hooks/useMockAuth';
-import { LayoutDashboard, Lightbulb, Settings, LogOut, LineChart, ReceiptText, UserCircle } from 'lucide-react';
+import { LayoutDashboard, Lightbulb, Settings, LogOut, LineChart, ReceiptText, UserCircle, Trash2, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePathname } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from '@/hooks/use-toast';
+
 
 export function AppSidebar() {
-  const { logout, currentUserEmail, currentUserName } = useMockAuth();
+  const { logout, deleteAccount, currentUserEmail, currentUserName } = useMockAuth();
+  const { toast } = useToast();
   const pathname = usePathname();
+  const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
 
   const menuItems = [
     { href: '/dashboard', label: 'Kontrollpanel', icon: LayoutDashboard },
@@ -34,6 +50,15 @@ export function AppSidebar() {
   const userInitial = currentUserName ? currentUserName.charAt(0).toUpperCase() : (currentUserEmail ? currentUserEmail.charAt(0).toUpperCase() : 'A');
   const displayName = currentUserName || (currentUserEmail ? currentUserEmail.split('@')[0] : "Användare");
 
+  const handleDeleteAccountConfirm = () => {
+    deleteAccount();
+    toast({
+      title: "Konto Raderat",
+      description: "Ditt konto och all tillhörande data har raderats.",
+      variant: "default",
+    });
+    setIsDeleteAlertOpen(false); 
+  };
 
   return (
     <Sidebar collapsible="icon" className="border-r">
@@ -73,8 +98,34 @@ export function AppSidebar() {
             {currentUserEmail && <p className="text-xs text-muted-foreground truncate" title={currentUserEmail}>{currentUserEmail}</p>}
           </div>
         </div>
-         <SidebarSeparator className="my-2"/>
-        <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-destructive group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:aspect-square group-data-[collapsible=icon]:p-0" onClick={logout} title="Logga Ut">
+        <SidebarSeparator className="my-1"/>
+        <AlertDialog open={isDeleteAlertOpen} onOpenChange={setIsDeleteAlertOpen}>
+          <AlertDialogTrigger asChild>
+            <Button variant="ghost" className="w-full justify-start text-destructive hover:text-destructive/90 hover:bg-destructive/10 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:aspect-square group-data-[collapsible=icon]:p-0" title="Radera Konto">
+              <Trash2 className="mr-2 h-5 w-5 group-data-[collapsible=icon]:mr-0" />
+              <span className="group-data-[collapsible=icon]:hidden">Radera Konto</span>
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <div className="flex justify-center mb-3">
+                <ShieldAlert className="h-12 w-12 text-destructive" />
+              </div>
+              <AlertDialogTitle className="text-center">Är du helt säker?</AlertDialogTitle>
+              <AlertDialogDescription className="text-center">
+                Denna åtgärd kommer permanent att radera ditt konto och all tillhörande data, inklusive transaktionstavlor och räkningar. Detta kan inte ångras.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="sm:justify-center">
+              <AlertDialogCancel>Avbryt</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteAccountConfirm} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                Ja, radera mitt konto
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        
+        <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:text-primary group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:aspect-square group-data-[collapsible=icon]:p-0" onClick={logout} title="Logga Ut">
           <LogOut className="mr-2 h-5 w-5 group-data-[collapsible=icon]:mr-0" />
           <span className="group-data-[collapsible=icon]:hidden">Logga Ut</span>
         </Button>

@@ -18,6 +18,7 @@ interface MockAuthContextType {
   login: (email?: string, password?: string) => void;
   logout: () => void;
   signup: (email?: string, password?: string, name?: string) => void;
+  deleteAccount: () => void;
   isLoading: boolean;
 }
 
@@ -138,8 +139,42 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     }
   }, [router]);
 
+  const deleteAccount = useCallback(() => {
+    const userEmail = currentUserEmail; // Capture current user's email before clearing state
+    if (typeof window !== 'undefined' && userEmail) {
+      try {
+        // Clear auth specific keys
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        localStorage.removeItem(AUTH_USER_EMAIL_KEY);
+        localStorage.removeItem(AUTH_USER_NAME_KEY);
+        
+        // Clear app-specific data for this user
+        localStorage.removeItem(`ekonova-boards-${userEmail}`);
+        localStorage.removeItem(`ekonova-active-board-id-${userEmail}`);
+        localStorage.removeItem(`ekonova-bills-${userEmail}`);
+
+        // Optionally, iterate through all localStorage keys if there's a pattern
+        // for user-specific data that isn't explicitly listed above.
+        // Example:
+        // Object.keys(localStorage).forEach(key => {
+        //   if (key.includes(userEmail)) { // Be careful with this pattern
+        //     localStorage.removeItem(key);
+        //   }
+        // });
+
+      } catch (error) {
+        console.error("Kunde inte radera konto från localStorage:", error);
+      }
+    }
+    setCurrentUserEmail(null);
+    setCurrentUserName(null);
+    setIsAuthenticated(false);
+    router.push('/login'); // Redirect to login after deletion
+  }, [router, currentUserEmail]);
+
+
   return (
-    <MockAuthContext.Provider value={{ isAuthenticated, currentUserEmail, currentUserName, login, logout, signup, isLoading }}>
+    <MockAuthContext.Provider value={{ isAuthenticated, currentUserEmail, currentUserName, login, logout, signup, deleteAccount, isLoading }}>
       {children}
     </MockAuthContext.Provider>
   );
@@ -152,3 +187,4 @@ export function useMockAuth() {
   }
   return context;
 }
+
