@@ -1,11 +1,13 @@
+// src/app/dashboard/components/overview/FinancialSummary.tsx
 "use client";
 
 import type { Category, Transaction } from "@/types";
 import { useState, useEffect, useMemo } from "react";
 import { useBoards } from "@/hooks/useBoards";
+import { useBills } from "@/hooks/useBills"; // Import useBills
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, DonutChart } from '@tremor/react';
-import { Loader2 } from "lucide-react";
+import { Loader2, ReceiptText } from "lucide-react"; // Added ReceiptText
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 // Helper to convert HSL string to hex for Tremor charts
@@ -40,6 +42,7 @@ function hslToHex(hslString: string) {
 
 export function FinancialSummary() {
   const { activeBoard, isLoadingBoards } = useBoards();
+  const { bills, isLoadingBills } = useBills(); // Use bills hook
   const [chartColors, setChartColors] = useState<string[]>([]);
   const [valueFormatter, setValueFormatter] = useState<(value: number) => string>(() => (value: number) => `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK' })}`);
 
@@ -80,6 +83,12 @@ export function FinancialSummary() {
 
   const netBalance = totalIncome - totalExpenses;
 
+  const totalUnpaidBills = useMemo(() => {
+    return bills
+      .filter(b => !b.isPaid)
+      .reduce((sum, b) => sum + b.amount, 0);
+  }, [bills]);
+
   const incomeExpenseData = [
     { name: "Total Inkomst", value: totalIncome },
     { name: "Totala Utgifter", value: totalExpenses },
@@ -96,7 +105,7 @@ export function FinancialSummary() {
     return Object.entries(expenseMap).map(([name, value]) => ({ name, value })).filter(item => item.value > 0);
   }, [transactions, categories]);
 
-  if (isLoadingBoards) {
+  if (isLoadingBoards || isLoadingBills) { // Include isLoadingBills
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -117,7 +126,7 @@ export function FinancialSummary() {
     );
   }
   
-  if (transactions.length === 0 && categories.length > 0) {
+  if (transactions.length === 0 && categories.length > 0 && bills.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -125,9 +134,9 @@ export function FinancialSummary() {
         </CardHeader>
         <CardContent>
            <Alert>
-            <AlertTitle>Inga Transaktioner Ännu</AlertTitle>
+            <AlertTitle>Inga Data Ännu</AlertTitle>
             <AlertDescription>
-                Den här tavlan har inga transaktioner. Lägg till några på kontrollpanelen för att se din ekonomiska översikt.
+                Den här tavlan har inga transaktioner eller räkningar. Lägg till några för att se din ekonomiska översikt.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -163,7 +172,7 @@ export function FinancialSummary() {
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
       <Card className="lg:col-span-1">
         <CardHeader>
-          <CardTitle>Sammanfattning</CardTitle>
+          <CardTitle>Kontosammanfattning</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
@@ -183,8 +192,25 @@ export function FinancialSummary() {
         </CardContent>
       </Card>
 
+      <Card className="lg:col-span-1">
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <ReceiptText className="mr-2 h-6 w-6 text-primary" />
+            Obetalda Räkningar
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex justify-between items-center p-3 bg-destructive/10 rounded-lg">
+            <span className="font-medium text-destructive">Totalt Obetalt</span>
+            <span className="font-bold text-red-500 text-xl">{formatCurrency(totalUnpaidBills)}</span>
+          </div>
+          {/* You could add more bill-related info here, e.g., upcoming due dates */}
+        </CardContent>
+      </Card>
+
+
       {(totalIncome > 0 || totalExpenses > 0) && (
-      <Card className="md:col-span-2 lg:col-span-2">
+      <Card className="md:col-span-2 lg:col-span-2"> {/* Adjusted to col-span-2 to fill remaining space better on LG */}
         <CardHeader>
           <CardTitle>Inkomster vs. Utgifter</CardTitle>
           <CardDescription>Jämförelse av dina inkomster och utgifter för den valda tavlan.</CardDescription>
