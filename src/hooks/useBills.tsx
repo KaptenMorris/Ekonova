@@ -11,7 +11,7 @@ interface BillsContextType {
   bills: Bill[];
   isLoadingBills: boolean;
   addBill: (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>) => Bill | null;
-  toggleBillPaidStatus: (billId: string) => void;
+  toggleBillPaidStatus: (billId: string) => Bill | undefined; // Return updated bill
   deleteBill: (billId: string) => void;
   updateBill: (updatedBill: Bill) => Bill | null;
 }
@@ -91,20 +91,26 @@ export function BillProvider({ children }: { children: ReactNode }) {
     return newBill;
   };
 
-  const toggleBillPaidStatus = (billId: string) => {
-    if (!isAuthenticated || !currentUserEmail) return;
+  const toggleBillPaidStatus = (billId: string): Bill | undefined => {
+    if (!isAuthenticated || !currentUserEmail) return undefined;
+    let foundAndUpdatedBill: Bill | undefined = undefined;
     const updatedBills = bills.map(bill => {
       if (bill.id === billId) {
         const newPaidStatus = !bill.isPaid;
-        return {
+        foundAndUpdatedBill = {
           ...bill,
           isPaid: newPaidStatus,
           paidDate: newPaidStatus ? new Date().toISOString() : undefined,
         };
+        return foundAndUpdatedBill;
       }
       return bill;
     });
-    saveBills(updatedBills);
+    
+    if (foundAndUpdatedBill) {
+      saveBills(updatedBills);
+    }
+    return foundAndUpdatedBill;
   };
 
   const deleteBill = (billId: string) => {
@@ -118,7 +124,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
     let modifiedBill: Bill | null = null;
     const updatedBills = bills.map(bill => {
       if (bill.id === updatedBillData.id) {
-        modifiedBill = { ...bill, ...updatedBillData };
+        modifiedBill = { ...bill, ...updatedBillData }; // Ensure all properties of Bill are spread
         return modifiedBill;
       }
       return bill;

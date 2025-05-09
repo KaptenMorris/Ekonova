@@ -230,7 +230,11 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
   const addCategoryToActiveBoard = (categoryData: Omit<Category, 'id'>): Category | null => {
     if (!isAuthenticated || !currentUserEmail) return null;
-    const newCategory: Category = { ...categoryData, id: uuidv4() };
+    const newCategory: Category = { 
+        ...categoryData, 
+        id: uuidv4(), 
+        icon: categoryData.icon || 'Archive' // Default icon if not provided
+    };
     let outcome: Category | null = null;
     modifyActiveBoard(board => {
       outcome = newCategory;
@@ -288,7 +292,8 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
   const shareBoard = (boardId: string, email: string) => {
     if (!isAuthenticated || !currentUserEmail) return;
-    modifyActiveBoard(board => {
+    // Logic for sharing is simplified for optimistic update and does not handle actual backend sharing
+    const updatedBoards = boards.map(board => {
       if (board.id === boardId) {
         const newSharedWith = Array.isArray(board.sharedWith) ? [...board.sharedWith] : [];
         if (!newSharedWith.includes(email)) {
@@ -298,16 +303,19 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       }
       return board;
     });
+    saveBoards(updatedBoards);
   };
 
   const unshareBoard = (boardId: string, email: string) => {
     if (!isAuthenticated || !currentUserEmail) return;
-    modifyActiveBoard(board => {
+    // Logic for unsharing is simplified
+    const updatedBoards = boards.map(board => {
       if (board.id === boardId) {
         return { ...board, sharedWith: (board.sharedWith || []).filter(e => e !== email) };
       }
       return board;
     });
+    saveBoards(updatedBoards);
   };
 
 

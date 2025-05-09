@@ -7,7 +7,7 @@ import { useBoards } from "@/hooks/useBoards";
 import { useBills } from "@/hooks/useBills"; // Import useBills
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BarChart, DonutChart } from '@tremor/react';
-import { Loader2, ReceiptText } from "lucide-react"; // Added ReceiptText
+import { Loader2, ReceiptText, Coins, TrendingUp, TrendingDown, AlertCircle } from "lucide-react"; // Added ReceiptText
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 // Helper to convert HSL string to hex for Tremor charts
@@ -58,10 +58,16 @@ export function FinancialSummary() {
             hslToHex(style.getPropertyValue('--chart-3').trim()),
             hslToHex(style.getPropertyValue('--chart-4').trim()),
             hslToHex(style.getPropertyValue('--chart-5').trim()),
-            hslToHex(style.getPropertyValue('--primary').trim()),
-            hslToHex(style.getPropertyValue('--accent').trim()),
+            hslToHex(style.getPropertyValue('--primary').trim()), // Primary
+            hslToHex(style.getPropertyValue('--accent').trim()), // Accent
+            // Adding more distinct colors if needed from theme
+            hslToHex(style.getPropertyValue('--destructive').trim()), // Destructive
+            hslToHex(style.getPropertyValue('--secondary').trim()), // Secondary (might be light)
         ];
-        setChartColors(colors.filter(c => c !== "#000000" && c !== "#")); 
+        // Filter out invalid colors and ensure a good default set
+        const validColors = colors.filter(c => c && c !== "#000000" && c !== "#" && c.length > 1);
+        setChartColors(validColors.length > 0 ? validColors : ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#6366F1', '#8B5CF6', '#EC4899']);
+
 
         setValueFormatter(() => (value: number) => 
             `${value.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace(/\s*kr$/, '').trim()} kr`
@@ -102,7 +108,7 @@ export function FinancialSummary() {
         expenseMap[category.name] = (expenseMap[category.name] || 0) + t.amount;
       }
     });
-    return Object.entries(expenseMap).map(([name, value]) => ({ name, value })).filter(item => item.value > 0);
+    return Object.entries(expenseMap).map(([name, value]) => ({ name, value })).filter(item => item.value > 0).sort((a,b) => b.value - a.value);
   }, [transactions, categories]);
 
   if (isLoadingBoards || isLoadingBills) { // Include isLoadingBills
@@ -120,7 +126,11 @@ export function FinancialSummary() {
           <CardTitle>Ekonomisk Översikt</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">Välj eller skapa en tavla för att se översikten.</p>
+           <Alert variant="default">
+            <Coins className="h-5 w-5" />
+            <AlertTitle>Ingen Tavla Vald</AlertTitle>
+            <AlertDescription>Välj eller skapa en tavla från menyn ovan för att se din ekonomiska översikt.</AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
     );
@@ -134,6 +144,7 @@ export function FinancialSummary() {
         </CardHeader>
         <CardContent>
            <Alert>
+            <AlertCircle className="h-5 w-5" />
             <AlertTitle>Inga Data Ännu</AlertTitle>
             <AlertDescription>
                 Den här tavlan har inga transaktioner eller räkningar. Lägg till några för att se din ekonomiska översikt.
@@ -143,14 +154,15 @@ export function FinancialSummary() {
       </Card>
     );
   }
-   if (categories.length === 0) {
+   if (categories.length === 0) { // This implies activeBoard exists but has no categories
     return (
       <Card>
         <CardHeader>
           <CardTitle>Ekonomisk Översikt</CardTitle>
         </CardHeader>
         <CardContent>
-           <Alert>
+           <Alert variant="destructive">
+            <AlertCircle className="h-5 w-5" />
             <AlertTitle>Inga Kategorier</AlertTitle>
             <AlertDescription>
                 Den här tavlan har inga kategorier. Lägg till några på kontrollpanelen först.
@@ -161,7 +173,8 @@ export function FinancialSummary() {
     );
   }
   
-  const validChartColors = chartColors.length > 0 ? chartColors : ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#6366F1'];
+  const validChartColors = chartColors.length > 0 ? chartColors : ['#2563eb', '#16a34a', '#f97316', '#dc2626', '#7c3aed', '#db2777', '#0891b2'];
+
 
   const formatCurrency = (value: number) => {
     return `${value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr`;
@@ -170,50 +183,73 @@ export function FinancialSummary() {
 
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-      <Card className="lg:col-span-1">
+      <Card className="lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow">
         <CardHeader>
-          <CardTitle>Kontosammanfattning</CardTitle>
+          <CardTitle className="text-2xl text-primary">Kontosammanfattning</CardTitle>
+          <CardDescription>Din nuvarande ekonomiska ställning för tavlan: <span className="font-semibold">{activeBoard.name}</span></CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-            <span className="font-medium text-secondary-foreground">Total Inkomst</span>
-            <span className="font-bold text-green-500 text-xl">{formatCurrency(totalIncome)}</span>
+        <CardContent className="space-y-3">
+          <div className="flex justify-between items-center p-4 bg-secondary rounded-lg">
+            <div className="flex items-center">
+                <TrendingUp className="mr-2 h-5 w-5 text-green-600" />
+                <span className="font-medium text-secondary-foreground">Total Inkomst</span>
+            </div>
+            <span className="font-bold text-green-600 text-lg">{formatCurrency(totalIncome)}</span>
           </div>
-          <div className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-            <span className="font-medium text-secondary-foreground">Totala Utgifter</span>
-            <span className="font-bold text-red-500 text-xl">{formatCurrency(totalExpenses)}</span>
+          <div className="flex justify-between items-center p-4 bg-secondary rounded-lg">
+             <div className="flex items-center">
+                <TrendingDown className="mr-2 h-5 w-5 text-red-600" />
+                <span className="font-medium text-secondary-foreground">Totala Utgifter</span>
+            </div>
+            <span className="font-bold text-red-600 text-lg">{formatCurrency(totalExpenses)}</span>
           </div>
-          <div className="flex justify-between items-center p-3 bg-primary/10 rounded-lg">
-            <span className="font-medium text-primary">Nettosaldo</span>
-            <span className={`font-bold text-xl ${netBalance >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+          <div className="flex justify-between items-center p-4 bg-primary/10 rounded-lg">
+            <div className="flex items-center">
+                <Coins className="mr-2 h-5 w-5 text-primary" />
+                <span className="font-medium text-primary">Nettosaldo</span>
+            </div>
+            <span className={`font-bold text-lg ${netBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {formatCurrency(netBalance)}
             </span>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="lg:col-span-1">
+      <Card className="lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow">
         <CardHeader>
-          <CardTitle className="flex items-center">
-            <ReceiptText className="mr-2 h-6 w-6 text-primary" />
+          <CardTitle className="flex items-center text-2xl text-primary">
+            <ReceiptText className="mr-3 h-7 w-7" />
             Obetalda Räkningar
           </CardTitle>
+          <CardDescription>Summan av alla dina obetalda räkningar.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex justify-between items-center p-3 bg-destructive/10 rounded-lg">
-            <span className="font-medium text-destructive">Totalt Obetalt</span>
-            <span className="font-bold text-red-500 text-xl">{formatCurrency(totalUnpaidBills)}</span>
+        <CardContent className="space-y-3">
+          <div className="flex justify-between items-center p-4 bg-destructive/10 rounded-lg">
+             <div className="flex items-center">
+                <AlertCircle className="mr-2 h-5 w-5 text-destructive" />
+                <span className="font-medium text-destructive">Totalt Obetalt</span>
+            </div>
+            <span className="font-bold text-red-600 text-lg">{formatCurrency(totalUnpaidBills)}</span>
           </div>
-          {/* You could add more bill-related info here, e.g., upcoming due dates */}
+          {bills.filter(b => !b.isPaid).length > 0 && (
+             <p className="text-xs text-muted-foreground text-center">
+                Du har {bills.filter(b => !b.isPaid).length} obetald(a) räkning(ar).
+            </p>
+          )}
+           {bills.filter(b => !b.isPaid).length === 0 && (
+             <p className="text-sm text-green-600 text-center py-2">
+                Alla räkningar är betalda!
+            </p>
+          )}
         </CardContent>
       </Card>
 
 
       {(totalIncome > 0 || totalExpenses > 0) && (
-      <Card className="md:col-span-2 lg:col-span-2"> {/* Adjusted to col-span-2 to fill remaining space better on LG */}
+      <Card className="md:col-span-2 lg:col-span-1 shadow-lg hover:shadow-xl transition-shadow"> {/* Changed to col-span-1 for 3-col layout */}
         <CardHeader>
-          <CardTitle>Inkomster vs. Utgifter</CardTitle>
-          <CardDescription>Jämförelse av dina inkomster och utgifter för den valda tavlan.</CardDescription>
+          <CardTitle className="text-2xl text-primary">Inkomster vs. Utgifter</CardTitle>
+          <CardDescription>Jämförelse av dina totala inkomster och utgifter.</CardDescription>
         </CardHeader>
         <CardContent>
           <BarChart
@@ -221,34 +257,51 @@ export function FinancialSummary() {
             data={incomeExpenseData}
             index="name"
             categories={["value"]}
-            colors={validChartColors.slice(0,2)}
+            colors={validChartColors.length >=2 ? [validChartColors[1], validChartColors[3]] : ['#10B981', '#EF4444']} // Green for income, Red for expenses
             yAxisWidth={60}
             valueFormatter={valueFormatter}
             noDataText="Ingen data tillgänglig."
+            showLegend={false}
           />
         </CardContent>
       </Card>
       )}
       
       {expenseBreakdownData.length > 0 && (
-        <Card className="md:col-span-2 lg:col-span-3">
+        <Card className="md:col-span-2 lg:col-span-3 shadow-lg hover:shadow-xl transition-shadow">
           <CardHeader>
-            <CardTitle>Utgiftsfördelning</CardTitle>
-            <CardDescription>Hur dina utgifter fördelas mellan kategorier för den valda tavlan.</CardDescription>
+            <CardTitle className="text-2xl text-primary">Utgiftsfördelning</CardTitle>
+            <CardDescription>Hur dina utgifter fördelas mellan kategorier.</CardDescription>
           </CardHeader>
-          <CardContent className="flex justify-center">
+          <CardContent className="flex items-center justify-center pt-4"> {/* Added pt-4 */}
             <DonutChart
-              className="mt-6 h-80 w-full max-w-lg"
+              className="h-80 w-full max-w-2xl" // Increased max-w
               data={expenseBreakdownData}
               category="value"
               index="name"
-              colors={validChartColors}
+              colors={validChartColors} // Use the full palette
               valueFormatter={valueFormatter}
-              noDataText="Ingen data tillgänglig."
+              noDataText="Inga utgiftsdata tillgängliga."
+              variant="pie" // Ensure it's a pie
+              label={valueFormatter(expenseBreakdownData.reduce((sum, item) => sum + item.value,0))} // Show total in center
             />
           </CardContent>
         </Card>
       )}
+       {(expenseBreakdownData.length === 0 && (totalIncome > 0 || totalExpenses > 0)) && (
+           <Card className="md:col-span-2 lg:col-span-3 shadow-lg hover:shadow-xl transition-shadow">
+                <CardHeader>
+                    <CardTitle className="text-2xl text-primary">Utgiftsfördelning</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <Alert>
+                        <AlertCircle className="h-5 w-5" />
+                        <AlertTitle>Inga Utgiftsdata</AlertTitle>
+                        <AlertDescription>Det finns inga utgiftstransaktioner att visa i fördelningen ännu för tavlan "{activeBoard.name}".</AlertDescription>
+                    </Alert>
+                </CardContent>
+           </Card>
+       )}
     </div>
   );
 }

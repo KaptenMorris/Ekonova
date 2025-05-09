@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Edit3, Trash2 } from "lucide-react";
+import { Edit3, Trash2, AlertTriangle } from "lucide-react";
 import { format, parseISO, isPast, differenceInDays } from 'date-fns';
 import { sv } from 'date-fns/locale';
 import { cn } from "@/lib/utils";
@@ -22,18 +22,23 @@ export function BillItemCard({ bill, onTogglePaid, onDelete, onEdit }: BillItemC
   const formattedDueDate = bill.dueDate ? format(parseISO(bill.dueDate), "d MMM yyyy", { locale: sv }) : 'Okänt datum';
   const formattedPaidDate = bill.paidDate ? format(parseISO(bill.paidDate), "d MMM yyyy", { locale: sv }) : '';
   
-  const isOverdue = !bill.isPaid && bill.dueDate && isPast(parseISO(bill.dueDate)) && differenceInDays(new Date(), parseISO(bill.dueDate)) > 0;
+  const isOverdueStrict = !bill.isPaid && bill.dueDate && isPast(parseISO(bill.dueDate)) && differenceInDays(new Date(), parseISO(bill.dueDate)) >= 0; // Changed to >= 0 to include today
 
   return (
-    <Card className={cn("shadow-md hover:shadow-lg transition-shadow duration-200", bill.isPaid ? "bg-secondary/30" : "bg-card", isOverdue && "border-destructive ring-2 ring-destructive/50")}>
+    <Card className={cn(
+        "shadow-md hover:shadow-lg transition-shadow duration-200", 
+        bill.isPaid ? "bg-secondary/30" : "bg-card", 
+        isOverdueStrict && "border-destructive ring-1 ring-destructive/40"
+      )}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 p-4">
         <div className="space-y-1">
           <CardTitle className={cn("text-base font-medium leading-none", bill.isPaid && "line-through text-muted-foreground")}>
             {bill.title}
           </CardTitle>
-          <CardDescription className={cn("text-xs", bill.isPaid ? "text-muted-foreground" : "text-primary", isOverdue && "text-destructive font-semibold")}>
+          <CardDescription className={cn("text-xs", bill.isPaid ? "text-muted-foreground" : "text-primary/80", isOverdueStrict && "text-destructive font-semibold flex items-center")}>
+            {isOverdueStrict && <AlertTriangle size={14} className="mr-1" />}
             Förfaller: {formattedDueDate}
-            {isOverdue && " (Förfallen)"}
+            {isOverdueStrict && " (Förfallen)"}
           </CardDescription>
           {bill.isPaid && formattedPaidDate && (
             <CardDescription className="text-xs text-green-600 dark:text-green-400">
@@ -41,7 +46,10 @@ export function BillItemCard({ bill, onTogglePaid, onDelete, onEdit }: BillItemC
             </CardDescription>
           )}
         </div>
-        <div className="text-lg font-bold text-red-600 dark:text-red-400">
+        <div className={cn(
+            "text-lg font-bold",
+            bill.isPaid ? "text-muted-foreground" : (isOverdueStrict ? "text-destructive" : "text-primary")
+          )}>
           {bill.amount.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr
         </div>
       </CardHeader>
@@ -62,7 +70,7 @@ export function BillItemCard({ bill, onTogglePaid, onDelete, onEdit }: BillItemC
         </div>
       </CardContent>
       <CardFooter className="p-4 pt-0 flex justify-end space-x-2">
-          {!bill.isPaid && (
+          {!bill.isPaid && ( // Only allow editing if not paid
             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => onEdit(bill)}>
               <Edit3 size={16} />
               <span className="sr-only">Redigera</span>
