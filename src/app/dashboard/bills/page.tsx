@@ -27,12 +27,12 @@ import {
 
 
 export default function BillsPage() {
-  const { bills, isLoadingBills, addBill, toggleBillPaidStatus: toggleBillStatusInHook, deleteBill, updateBill } = useBills();
+  const { bills, isLoadingBills, addBill, toggleBillPaidStatus: toggleBillStatusInHook, deleteBill: deleteBillFromHook, updateBill } = useBills();
   const { activeBoard, addCategoryToActiveBoard, addTransactionToActiveBoard, deleteTransactionFromActiveBoard, isLoadingBoards } = useBoards();
   const { toast } = useToast();
   const [isAddBillDialogOpen, setIsAddBillDialogOpen] = useState(false);
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
-  const [billToDelete, setBillToDelete] = useState<string | null>(null);
+  const [billToDeleteId, setBillToDeleteId] = useState<string | null>(null);
 
   const expenseCategories = useMemo(() => {
     return (activeBoard?.categories || []).filter(c => c.type === 'expense');
@@ -73,11 +73,33 @@ export default function BillsPage() {
   };
   
   const handleDeleteBillConfirm = () => {
-    if (billToDelete) {
-      const billInfo = bills.find(b => b.id === billToDelete);
-      deleteBill(billToDelete);
-      toast({ title: "Räkning Raderad", description: `${billInfo?.title || 'Räkningen'} har raderats.`});
-      setBillToDelete(null);
+    if (billToDeleteId) {
+      const billInfo = bills.find(b => b.id === billToDeleteId);
+      if (!billInfo) {
+        toast({ title: "Fel", description: "Kunde inte hitta räkningen för att radera.", variant: "destructive"});
+        setBillToDeleteId(null);
+        return;
+      }
+
+      let transactionDeletedInfo = "";
+
+      // Check if the bill was paid and if there's an active board to find the transaction
+      if (billInfo.isPaid && activeBoard && billInfo.id) {
+        const transactionToDelete = activeBoard.transactions.find(
+            t => t.description?.includes(`(ID: ${billInfo.id})`) && 
+                 t.title === billInfo.title && 
+                 t.amount === billInfo.amount && 
+                 t.categoryId === billInfo.categoryId
+        );
+        if (transactionToDelete) {
+            deleteTransactionFromActiveBoard(transactionToDelete.id);
+            transactionDeletedInfo = ` Den tillhörande transaktionen på tavlan '${activeBoard.name}' har också raderats.`;
+        }
+      }
+      
+      deleteBillFromHook(billToDeleteId);
+      toast({ title: "Räkning Raderad", description: `${billInfo.title} har raderats.${transactionDeletedInfo}`});
+      setBillToDeleteId(null);
     }
   };
 
@@ -92,18 +114,17 @@ export default function BillsPage() {
         // Bill was just marked as paid
         if (!activeBoard) {
             toast({ title: "Fel", description: "Ingen aktiv tavla vald för att bokföra räkningen.", variant: "destructive" });
-            // Revert UI change if necessary, or ensure toggleBillStatusInHook handles this
-            toggleBillStatusInHook(billId); // Revert paid status if board is missing
+            toggleBillStatusInHook(billId); 
             return;
         }
         if (!updatedBill.paidDate) {
             toast({ title: "Fel", description: "Betaldatum saknas för räkningen.", variant: "destructive" });
-            toggleBillStatusInHook(billId); // Revert
+            toggleBillStatusInHook(billId); 
             return; 
         }
         if (!updatedBill.categoryId) {
             toast({ title: "Fel", description: "Kategori saknas för räkningen. Redigera räkningen och välj en kategori.", variant: "destructive" });
-            toggleBillStatusInHook(billId); // Revert
+            toggleBillStatusInHook(billId); 
             return;
         }
 
@@ -111,7 +132,6 @@ export default function BillsPage() {
 
         if (!targetCategory) {
             toast({ title: "Fel", description: `Kategorin för räkningen hittades inte på tavlan. Skapa transaktionen manuellt.`, variant: "destructive" });
-            // Bill is marked paid, but no transaction created. User needs to be aware.
             return;
         }
 
@@ -133,7 +153,10 @@ export default function BillsPage() {
         // Bill was marked as unpaid
         if (activeBoard && updatedBill.id) {
             const transactionToDelete = activeBoard.transactions.find(
-                t => t.description?.includes(`(ID: ${updatedBill.id})`) && t.title === updatedBill.title && t.amount === updatedBill.amount && t.categoryId === updatedBill.categoryId
+                t => t.description?.includes(`(ID: ${updatedBill.id})`) && 
+                     t.title === updatedBill.title && 
+                     t.amount === updatedBill.amount && 
+                     t.categoryId === updatedBill.categoryId
             );
             if (transactionToDelete) {
                 deleteTransactionFromActiveBoard(transactionToDelete.id);
@@ -201,7 +224,7 @@ export default function BillsPage() {
                         key={bill.id} 
                         bill={bill} 
                         onTogglePaid={handleToggleBillPaidStatus} 
-                        onDelete={() => setBillToDelete(bill.id)}
+                        onDelete={() => setBillToDeleteId(bill.id)}
                         onEdit={handleEditBill}
                         categories={expenseCategories}
                     />
@@ -235,7 +258,7 @@ export default function BillsPage() {
                         key={bill.id} 
                         bill={bill} 
                         onTogglePaid={handleToggleBillPaidStatus} 
-                        onDelete={() => setBillToDelete(bill.id)}
+                        onDelete={() => setBillToDeleteId(bill.id)}
                         onEdit={handleEditBill} 
                         categories={expenseCategories}
                     />
@@ -261,17 +284,17 @@ export default function BillsPage() {
           categories={expenseCategories}
         />
       )}
-      {billToDelete && (
-        <AlertDialog open={!!billToDelete} onOpenChange={(open) => !open && setBillToDelete(null)}>
+      {billToDeleteId && (
+        <AlertDialog open={!!billToDeleteId} onOpenChange={(open) => !open && setBillToDeleteId(null)}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                 <AlertDialogTitle>Är du säker?</AlertDialogTitle>
                 <AlertDialogDescription>
-                    Denna åtgärd kommer att radera räkningen permanent. Detta kan inte ångras.
+                    Denna åtgärd kommer att radera räkningen permanent. Om räkningen var betald och en transaktion skapades, kommer även den transaktionen att raderas. Detta kan inte ångras.
                 </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                <AlertDialogCancel onClick={() => setBillToDelete(null)}>Avbryt</AlertDialogCancel>
+                <AlertDialogCancel onClick={() => setBillToDeleteId(null)}>Avbryt</AlertDialogCancel>
                 <AlertDialogAction onClick={handleDeleteBillConfirm} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
                     Radera
                 </AlertDialogAction>
@@ -282,3 +305,4 @@ export default function BillsPage() {
     </div>
   );
 }
+
