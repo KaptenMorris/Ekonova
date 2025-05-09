@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 
 interface MockAuthContextType {
   isAuthenticated: boolean;
+  currentUserEmail: string | null;
   login: (email?: string, password?: string) => void;
   logout: () => void;
   signup: (email?: string, password?: string, name?: string) => void;
@@ -22,9 +23,11 @@ interface MockAuthContextType {
 const MockAuthContext = createContext<MockAuthContextType | undefined>(undefined);
 
 const AUTH_STORAGE_KEY = 'ekonova_auth_status';
+const AUTH_USER_EMAIL_KEY = 'ekonova_auth_user_email';
 
 export function MockAuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
@@ -32,54 +35,81 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     if (typeof window !== 'undefined') {
       try {
         const storedAuthStatus = localStorage.getItem(AUTH_STORAGE_KEY);
-        if (storedAuthStatus === 'true') {
+        const storedUserEmail = localStorage.getItem(AUTH_USER_EMAIL_KEY);
+        if (storedAuthStatus === 'true' && storedUserEmail) {
           setIsAuthenticated(true);
+          setCurrentUserEmail(storedUserEmail);
+        } else {
+          // Ensure consistency if one key exists but not the other
+          localStorage.removeItem(AUTH_STORAGE_KEY);
+          localStorage.removeItem(AUTH_USER_EMAIL_KEY);
         }
       } catch (error) {
-        console.error("Could not access localStorage:", error);
+        console.error("Kunde inte komma åt localStorage:", error);
       }
     }
     setIsLoading(false);
   }, []);
 
-  const login = useCallback((_email?: string, _password?: string) => {
-    if (typeof window !== 'undefined') {
+  const login = useCallback((email?: string, _password?: string) => {
+    if (typeof window !== 'undefined' && email) {
       try {
         localStorage.setItem(AUTH_STORAGE_KEY, 'true');
+        localStorage.setItem(AUTH_USER_EMAIL_KEY, email);
+        setCurrentUserEmail(email);
+        setIsAuthenticated(true);
+        router.push('/dashboard');
       } catch (error) {
-        console.error("Could not access localStorage:", error);
+        console.error("Kunde inte komma åt localStorage:", error);
+        // Fallback if localStorage fails, still set state for current session
+        setCurrentUserEmail(email);
+        setIsAuthenticated(true);
+        router.push('/dashboard');
       }
+    } else if (email) { // Handle case where window is not defined but email is passed (e.g. server initial state, though unlikely here)
+        setCurrentUserEmail(email);
+        setIsAuthenticated(true);
+        router.push('/dashboard');
     }
-    setIsAuthenticated(true);
-    router.push('/dashboard');
   }, [router]);
 
   const logout = useCallback(() => {
     if (typeof window !== 'undefined') {
       try {
         localStorage.removeItem(AUTH_STORAGE_KEY);
+        localStorage.removeItem(AUTH_USER_EMAIL_KEY);
       } catch (error) {
-        console.error("Could not access localStorage:", error);
+        console.error("Kunde inte komma åt localStorage:", error);
       }
     }
+    setCurrentUserEmail(null);
     setIsAuthenticated(false);
-    router.push('/login');
+    router.push('/login'); // Explicitly redirect to login on logout
   }, [router]);
   
-  const signup = useCallback((_email?: string, _password?: string, _name?: string) => {
-    if (typeof window !== 'undefined') {
+  const signup = useCallback((email?: string, _password?: string, _name?: string) => {
+     if (typeof window !== 'undefined' && email) {
       try {
         localStorage.setItem(AUTH_STORAGE_KEY, 'true');
+        localStorage.setItem(AUTH_USER_EMAIL_KEY, email);
+        setCurrentUserEmail(email);
+        setIsAuthenticated(true);
+        router.push('/dashboard');
       } catch (error) {
-        console.error("Could not access localStorage:", error);
+        console.error("Kunde inte komma åt localStorage:", error);
+        setCurrentUserEmail(email);
+        setIsAuthenticated(true);
+        router.push('/dashboard');
       }
+    } else if (email) {
+        setCurrentUserEmail(email);
+        setIsAuthenticated(true);
+        router.push('/dashboard');
     }
-    setIsAuthenticated(true);
-    router.push('/dashboard');
   }, [router]);
 
   return (
-    <MockAuthContext.Provider value={{ isAuthenticated, login, logout, signup, isLoading }}>
+    <MockAuthContext.Provider value={{ isAuthenticated, currentUserEmail, login, logout, signup, isLoading }}>
       {children}
     </MockAuthContext.Provider>
   );
@@ -88,7 +118,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 export function useMockAuth() {
   const context = useContext(MockAuthContext);
   if (context === undefined) {
-    throw new Error('useMockAuth must be used within a MockAuthProvider');
+    throw new Error('useMockAuth måste användas inom en MockAuthProvider');
   }
   return context;
 }

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect } from 'react';
@@ -14,8 +15,8 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading: isLoadingAuth } = useMockAuth();
-  const { isLoadingBoards } = useBoards(); // Access isLoadingBoards
+  const { isAuthenticated, isLoading: isLoadingAuth, currentUserEmail } = useMockAuth();
+  const { isLoadingBoards } = useBoards(); 
   const router = useRouter();
 
   useEffect(() => {
@@ -24,8 +25,8 @@ export default function DashboardLayout({
     }
   }, [isAuthenticated, isLoadingAuth, router]);
 
-  // Combine loading states
-  const isLoading = isLoadingAuth || isLoadingBoards;
+  // isLoadingBoards from useBoards() now incorporates isLoadingAuth
+  const isLoading = isLoadingBoards; 
 
   if (isLoading) {
     return (
@@ -36,9 +37,18 @@ export default function DashboardLayout({
     );
   }
 
-  if (!isAuthenticated) {
-    return null; 
+  // This check ensures that if auth is loaded, but user is not authenticated,
+  // we don't render the dashboard layout before redirect happens.
+  // currentUserEmail check added for extra safety after auth changes.
+  if (!isLoadingAuth && (!isAuthenticated || !currentUserEmail)) {
+    return (
+         <div className="flex h-screen w-full items-center justify-center bg-background">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <span className="ml-4 text-lg">Omdirigerar...</span>
+        </div>
+    );
   }
+
 
   return (
     <SidebarProvider defaultOpen>
