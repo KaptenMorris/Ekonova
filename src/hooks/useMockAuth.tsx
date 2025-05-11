@@ -20,6 +20,7 @@ interface StoredUser {
   verificationToken?: string;
   isDeleted?: boolean;
   createdAt: string;
+  avatarUrl?: string; // New field for avatar
 }
 
 interface LoginResult {
@@ -38,16 +39,29 @@ interface VerifyEmailResult {
     errorKey?: 'invalid_token' | 'already_verified' | 'generic_error';
 }
 
+interface ChangePasswordResult {
+  success: boolean;
+  errorKey?: 'invalid_current_password' | 'generic_error';
+}
+
+interface UpdateProfilePictureResult {
+  success: boolean;
+  errorKey?: 'generic_error';
+}
+
 
 interface MockAuthContextType {
   isAuthenticated: boolean;
   currentUserEmail: string | null;
   currentUserName: string | null;
+  currentUserAvatarUrl: string | null; // New state for avatar URL
   login: (email?: string, password?: string) => Promise<LoginResult>;
   logout: () => void;
   signup: (email?: string, password?: string, name?: string) => Promise<SignupResult>;
   deleteAccount: () => Promise<void>;
   verifyEmail: (token: string) => Promise<VerifyEmailResult>;
+  changePassword: (currentPassword?: string, newPassword?: string) => Promise<ChangePasswordResult>; // New function
+  updateProfilePicture: (imageDataUri: string) => Promise<UpdateProfilePictureResult>; // New function
   isLoading: boolean;
 }
 
@@ -82,6 +96,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [currentUserName, setCurrentUserName] = useState<string | null>(null);
+  const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | null>(null); // State for avatar
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
@@ -100,23 +115,27 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
           setIsAuthenticated(true);
           setCurrentUserEmail(user.email);
           setCurrentUserName(user.name);
+          setCurrentUserAvatarUrl(user.avatarUrl || null); // Load avatar URL
         } else {
           // Invalid session, clear it
           localStorage.removeItem(SESSION_EMAIL_KEY);
           setIsAuthenticated(false);
           setCurrentUserEmail(null);
           setCurrentUserName(null);
+          setCurrentUserAvatarUrl(null);
         }
       } else {
         setIsAuthenticated(false);
         setCurrentUserEmail(null);
         setCurrentUserName(null);
+        setCurrentUserAvatarUrl(null);
       }
     } catch (error) {
       console.error("Fel vid initiering av autentiseringsstatus:", error);
       setIsAuthenticated(false);
       setCurrentUserEmail(null);
       setCurrentUserName(null);
+      setCurrentUserAvatarUrl(null);
     }
     setIsLoading(false);
   }, []);
@@ -142,6 +161,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(SESSION_EMAIL_KEY, user.email);
       setCurrentUserEmail(user.email);
       setCurrentUserName(user.name);
+      setCurrentUserAvatarUrl(user.avatarUrl || null); // Set avatar URL on login
       setIsAuthenticated(true);
       router.push('/dashboard');
       return { success: true };
@@ -161,6 +181,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     }
     setCurrentUserEmail(null);
     setCurrentUserName(null);
+    setCurrentUserAvatarUrl(null); // Clear avatar URL on logout
     setIsAuthenticated(false);
     router.push('/login'); 
   }, [router]);
@@ -178,7 +199,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         // Allow re-signup for a deleted account, effectively overwriting it
         const updatedUsers = users.map(u => 
           u.email === email 
-          ? { ...u, passwordHash: password, name, isVerified: false, verificationToken, isDeleted: false, createdAt: new Date().toISOString() } 
+          ? { ...u, passwordHash: password, name, isVerified: false, verificationToken, isDeleted: false, createdAt: new Date().toISOString(), avatarUrl: u.avatarUrl || `https://picsum.photos/seed/${uuidv4()}/100/100` } 
           : u
         );
         saveUsersToStorage(updatedUsers);
@@ -206,6 +227,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       isVerified: false,
       verificationToken,
       createdAt: new Date().toISOString(),
+      avatarUrl: `https://picsum.photos/seed/${uuidv4()}/100/100`, // Default avatar
     };
     saveUsersToStorage([...users, newUser]);
     return { success: true, messageKey: 'verification_sent', verificationTokenForMock: verificationToken };
@@ -223,7 +245,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     
     const userToVerify = users[userIndex];
     if (userToVerify.isVerified) {
-        return { success: true, errorKey: 'already_verified' }; // Or just success: true if idempotent is desired
+        return { success: true, errorKey: 'already_verified' }; 
     }
 
     users[userIndex] = { ...userToVerify, isVerified: true, verificationToken: undefined };
@@ -253,13 +275,59 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     }
     setCurrentUserEmail(null);
     setCurrentUserName(null);
+    setCurrentUserAvatarUrl(null);
     setIsAuthenticated(false);
     router.push('/login'); 
   }, [router, currentUserEmail]);
 
+  const changePassword = useCallback(async (currentPassword?: string, newPassword?: string): Promise<ChangePasswordResult> => {
+    if (!currentPassword || !newPassword) return { success: false, errorKey: 'generic_error' };
+    if (typeof window === 'undefined' || !currentUserEmail) return { success: false, errorKey: 'generic_error' };
+
+    const users = getUsersFromStorage();
+    const userIndex = users.findIndex(u => u.email === currentUserEmail);
+
+    if (userIndex === -1) return { success: false, errorKey: 'generic_error' }; // Should not happen if logged in
+
+    if (users[userIndex].passwordHash !== currentPassword) { // Plain text check
+      return { success: false, errorKey: 'invalid_current_password' };
+    }
+
+    users[userIndex].passwordHash = newPassword; // Update with new plain text password
+    saveUsersToStorage(users);
+    return { success: true };
+  }, [currentUserEmail]);
+
+  const updateProfilePicture = useCallback(async (imageDataUri: string): Promise<UpdateProfilePictureResult> => {
+    if (typeof window === 'undefined' || !currentUserEmail) return { success: false, errorKey: 'generic_error' };
+
+    const users = getUsersFromStorage();
+    const userIndex = users.findIndex(u => u.email === currentUserEmail);
+
+    if (userIndex === -1) return { success: false, errorKey: 'generic_error' };
+
+    users[userIndex].avatarUrl = imageDataUri;
+    saveUsersToStorage(users);
+    setCurrentUserAvatarUrl(imageDataUri); // Update state immediately
+    return { success: true };
+  }, [currentUserEmail]);
+
 
   return (
-    <MockAuthContext.Provider value={{ isAuthenticated, currentUserEmail, currentUserName, login, logout, signup, deleteAccount, verifyEmail, isLoading }}>
+    <MockAuthContext.Provider value={{ 
+      isAuthenticated, 
+      currentUserEmail, 
+      currentUserName, 
+      currentUserAvatarUrl,
+      login, 
+      logout, 
+      signup, 
+      deleteAccount, 
+      verifyEmail, 
+      changePassword,
+      updateProfilePicture,
+      isLoading 
+    }}>
       {children}
     </MockAuthContext.Provider>
   );

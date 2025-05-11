@@ -34,7 +34,7 @@ import { useToast } from '@/hooks/use-toast';
 
 
 export function AppSidebar() {
-  const { logout, deleteAccount, currentUserEmail, currentUserName } = useMockAuth();
+  const { logout, deleteAccount, currentUserEmail, currentUserName, currentUserAvatarUrl } = useMockAuth();
   const { toast } = useToast();
   const pathname = usePathname();
   const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
@@ -45,7 +45,7 @@ export function AppSidebar() {
     { href: '/dashboard/bills', label: 'Räkningar', icon: ReceiptText },
     { href: '/dashboard/shopping', label: 'Handla', icon: ShoppingCart },
     { href: '/dashboard/budget-ai', label: 'AI Budgetrådgivare', icon: Lightbulb },
-    // { href: '/dashboard/settings', label: 'Inställningar', icon: Settings }, // Placeholder
+    { href: '/dashboard/settings/account', label: 'Kontoinställningar', icon: Settings },
   ];
 
   const userInitial = currentUserName ? currentUserName.charAt(0).toUpperCase() : (currentUserEmail ? currentUserEmail.charAt(0).toUpperCase() : 'A');
@@ -89,16 +89,18 @@ export function AppSidebar() {
       
       <SidebarFooter className="p-2 mt-auto"> {/* Use mt-auto to push to bottom */}
         <SidebarSeparator className="my-2"/>
-        <div className="flex items-center gap-3 p-2 mb-2">
-          <Avatar className="h-9 w-9">
-            <AvatarImage src="https://picsum.photos/40/40" alt={displayName} data-ai-hint="person avatar" />
-            <AvatarFallback>{userInitial}</AvatarFallback>
-          </Avatar>
-          <div className="text-sm overflow-hidden group-data-[collapsible=icon]:hidden">
-            <p className="font-semibold truncate" title={displayName}>{displayName}</p>
-            {currentUserEmail && <p className="text-xs text-muted-foreground truncate" title={currentUserEmail}>{currentUserEmail}</p>}
-          </div>
-        </div>
+        <Link href="/dashboard/settings/account" className="block hover:bg-muted/50 rounded-md transition-colors">
+            <div className="flex items-center gap-3 p-2 mb-2 cursor-pointer">
+            <Avatar className="h-9 w-9">
+                <AvatarImage src={currentUserAvatarUrl || `https://picsum.photos/seed/${userInitial}/40/40`} alt={displayName} data-ai-hint="person avatar" />
+                <AvatarFallback>{userInitial}</AvatarFallback>
+            </Avatar>
+            <div className="text-sm overflow-hidden group-data-[collapsible=icon]:hidden">
+                <p className="font-semibold truncate" title={displayName}>{displayName}</p>
+                {currentUserEmail && <p className="text-xs text-muted-foreground truncate" title={currentUserEmail}>{currentUserEmail}</p>}
+            </div>
+            </div>
+        </Link>
         <SidebarSeparator className="my-1"/>
         <AlertDialog open={isDeleteAlertOpen} onOpenChange={setIsDeleteAlertOpen}>
           <AlertDialogTrigger asChild>
@@ -134,4 +136,3 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
-
