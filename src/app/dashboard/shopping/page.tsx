@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo, type FormEvent } from "react";
+import { useState, useMemo, useEffect, type FormEvent } from "react";
 import { useBoards } from "@/hooks/useBoards";
 import { useToast } from "@/hooks/use-toast";
 import type { Category, Transaction } from "@/types";
@@ -112,7 +112,17 @@ export default function ShoppingPage() {
     
     let transactionDescription = notes;
     if (receiptImageFile) {
+      // In a real app, you would upload the image here and store a URL or reference.
+      // For this mock, we'll just add the filename to the description.
+      // This part will be significantly different with actual image handling.
       transactionDescription = `${notes}${notes ? ". " : ""}Kvittofil: ${receiptImageFile.name}`.trim();
+      // Example: const imageUrl = await uploadReceiptImage(receiptImageFile);
+      // transactionDescription = `${notes} Kvitto: ${imageUrl}`;
+       toast({
+        title: "Kvitto Info",
+        description: `Kvitto "${receiptImageFile.name}" har bifogats (simulerat). I en riktig app skulle det laddas upp.`,
+        duration: 5000,
+      });
     }
 
     const transactionData: Omit<Transaction, 'id'> = {
@@ -294,3 +304,4 @@ export default function ShoppingPage() {
     </div>
   );
 }
+
