@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Logo } from '@/components/shared/Logo';
 import { useMockAuth } from '@/hooks/useMockAuth';
-import { LayoutDashboard, Lightbulb, Settings, LogOut, LineChart, ReceiptText, UserCircle, Trash2, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, Lightbulb, Settings, LogOut, LineChart, ReceiptText, UserCircle, Trash2, ShieldAlert, ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePathname } from 'next/navigation';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -43,6 +43,7 @@ export function AppSidebar() {
     { href: '/dashboard', label: 'Kontrollpanel', icon: LayoutDashboard },
     { href: '/dashboard/overview', label: 'Ekonomisk Översikt', icon: LineChart },
     { href: '/dashboard/bills', label: 'Räkningar', icon: ReceiptText },
+    { href: '/dashboard/shopping', label: 'Handla', icon: ShoppingCart },
     { href: '/dashboard/budget-ai', label: 'AI Budgetrådgivare', icon: Lightbulb },
     // { href: '/dashboard/settings', label: 'Inställningar', icon: Settings }, // Placeholder
   ];
@@ -133,3 +134,4 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
+
