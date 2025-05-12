@@ -80,8 +80,8 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     if (!configOk) {
         setIsLoading(false);
         setUser(null);
-        console.error("fetchUser skipped: Appwrite configuration is invalid. Check .env.local and restart server.");
-        // Optionally toast here, but might be too noisy on every load
+        // This console.error is crucial and already exists in src/lib/appwrite.ts
+        // console.error("fetchUser skipped: Appwrite configuration is invalid. Check .env.local and restart server.");
         return;
     }
     setIsLoading(true);
@@ -90,12 +90,8 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       setUser(currentUser);
       // Optionally generate/fetch avatar if not in prefs
        if (!currentUser.prefs?.avatarUrl) {
-         // If no avatar in prefs, generate one based on name (or email initial)
          const userInitial = currentUser.name ? currentUser.name.charAt(0).toUpperCase() : (currentUser.email ? currentUser.email.charAt(0).toUpperCase() : 'A');
-         // Note: Appwrite Avatars service generates URLs, doesn't store them directly
          const avatarUrl = avatars.getInitials(userInitial).toString();
-         // We might want to save this generated URL to prefs, but getInitials is dynamic
-         // For consistency, let's just use the dynamically generated URL for display if no pref exists
          setUser(prev => prev ? { ...prev, prefs: { ...prev.prefs, avatarUrl: avatarUrl } } : null);
        }
 
@@ -104,7 +100,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       if (e instanceof AppwriteException) {
           // Code 0 often indicates a network error or CORS issue before a proper HTTP code is received
           if (e.code === 0 || (e.message && e.message.toLowerCase().includes('failed to fetch'))) {
-             console.error(`Appwrite fetchUser network/CORS error: ${e.message}. Check Appwrite platform settings and network connection.`);
+             console.error(`Appwrite fetchUser network/CORS error: ${e.message}. Check Appwrite platform settings (CORS), network connection, and browser's network tab for more details.`);
              // Don't toast here to avoid noise on initial load when logged out
           } else {
              console.error(`Appwrite fetchUser error (Code: ${e.code}): ${e.message}. Type: ${e.type}`);
@@ -143,34 +139,26 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       console.error("Appwrite login error:", e);
       setIsLoading(false);
       if (e instanceof AppwriteException) {
-          if (e.code === 401) { // Unauthorized
-              // Check if it's due to unverified email - difficult to distinguish reliably client-side without trying fetchUser again or specific API response
-              // Appwrite might return 401 for both bad creds and unverified email in some flows.
-              // Let's check the user status IF a session was partially created (might not be the case)
+          if (e.code === 401) { 
               try {
-                  // Try getting account status again, it might reveal verification needed
                   const tempUser = await account.get();
                   if (!tempUser.emailVerification) {
                       return { success: false, errorKey: 'account_not_verified' };
                   }
               } catch (getUserError) {
-                 // If getting user fails after session attempt, likely bad credentials
                  return { success: false, errorKey: 'invalid_credentials' };
               }
-              // If we somehow get here, assume invalid credentials
               return { success: false, errorKey: 'invalid_credentials' };
           }
-           // Sometimes unverified might be a 400 with specific message
           if (e.code === 400 && e.message.toLowerCase().includes('verify')) {
                return { success: false, errorKey: 'account_not_verified' };
           }
-          // Handle other potential Appwrite errors (e.g., network, server unavailable)
            if (e.code === 0 || e.message.toLowerCase().includes('failed to fetch')) {
                toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och att Appwrite-plattformen är korrekt konfigurerad.", variant: "destructive", duration: 7000 });
                return { success: false, errorKey: 'generic_error' };
            }
       }
-      return { success: false, errorKey: 'invalid_credentials' }; // Default to invalid credentials
+      return { success: false, errorKey: 'invalid_credentials' }; 
     }
   }, [router, fetchUser, toast]);
 
@@ -210,9 +198,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       await account.create(ID.unique(), email, password, name);
-      // Send verification email
-      // Construct the verification URL based on your frontend routing
-       const verificationUrl = typeof window !== 'undefined' ? `${window.location.origin}/verify-email` : ''; // Adjust if needed
+       const verificationUrl = typeof window !== 'undefined' ? `${window.location.origin}/verify-email` : ''; 
        if (verificationUrl) {
             await account.createVerification(verificationUrl);
             setIsLoading(false);
@@ -220,14 +206,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
        } else {
             console.error("Could not determine verification URL");
              setIsLoading(false);
-             // Provide feedback even if URL determination fails
              toast({ title: "Fel", description: "Kunde inte skapa verifieringslänk.", variant: "destructive"});
             return { success: false, messageKey: 'generic_error' };
        }
     } catch (e) {
       console.error("Appwrite signup error:", e);
       setIsLoading(false);
-      if (e instanceof AppwriteException && e.code === 409) { // User already exists
+      if (e instanceof AppwriteException && e.code === 409) { 
         return { success: false, messageKey: 'already_registered' };
       }
       if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
@@ -247,16 +232,15 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     try {
         await account.updateVerification(userId, secret);
         setIsLoading(false);
-        // Optionally fetch user again or redirect, but success is enough for the page
         return { success: true };
     } catch (e) {
         console.error("Appwrite verification error:", e);
         setIsLoading(false);
          if (e instanceof AppwriteException) {
-            if (e.message.toLowerCase().includes('already verified')) { // Check specific error message if possible
+            if (e.message.toLowerCase().includes('already verified')) { 
                 return { success: true, errorKey: 'already_verified'};
             }
-             if (e.code === 404 || e.code === 401) { // Not found or invalid
+             if (e.code === 404 || e.code === 401) { 
                 return { success: false, errorKey: 'invalid_token' };
              }
               if (e.code === 0 || e.message.toLowerCase().includes('failed to fetch')) {
@@ -305,19 +289,41 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
 
   const deleteAccount = useCallback(async () => {
-    // Appwrite doesn't have a direct "delete user" from client-side for security.
-    // This typically requires a backend function or manual deletion.
-    // We can simulate deletion by logging out and maybe marking prefs.
-    console.warn("Kontoborttagning är inte implementerad med direkt Appwrite client SDK. Loggar ut istället.");
-    await logout();
-    // In a real app: Call a backend function -> Use Admin SDK to delete user -> Handle response
-    toast({
-      title: "Funktion Ej Tillgänglig",
-      description: "Kontoborttagning måste hanteras via serversidan. Du har loggats ut.",
-      variant: "destructive",
-      duration: 7000,
-    });
-  }, [logout, toast]);
+    if (!configOk) {
+        toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
+        return;
+    }
+    if (!user || !user.$id) {
+        toast({ title: "Fel", description: "Ingen användare inloggad för att radera.", variant: "destructive" });
+        return;
+    }
+    setIsLoading(true);
+    try {
+        // Appwrite rekommenderar server-side för kontoborttagning.
+        // Om du måste göra det client-side (inte rekommenderat för prod):
+        // await account.delete(); // Detta raderar den aktuella sessionen och användarkontot.
+        // För nu, loggar vi bara ut och meddelar användaren:
+        await account.deleteSession('current'); // Detta är säkrare för client-side
+        setUser(null);
+        router.push('/login');
+        toast({
+            title: "Konto 'Raderat' (Utloggad)",
+            description: "För att fullständigt radera kontot krävs en server-side åtgärd. Du har loggats ut.",
+            variant: "default", // Ändrad från destructive för att reflektera att det inte är full radering
+            duration: 10000,
+        });
+
+    } catch (e) {
+        console.error("Appwrite delete account/session error:", e);
+        if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
+             toast({ title: "Nätverksfel", description: "Kunde inte radera konto/session. Kontrollera din anslutning.", variant: "destructive" });
+        } else {
+            toast({ title: "Fel Vid Radering", description: "Kunde inte radera konto/session. Försök igen.", variant: "destructive" });
+        }
+    } finally {
+        setIsLoading(false);
+    }
+  }, [user, logout, router, toast]);
 
   const changePassword = useCallback(async (currentPassword?: string, newPassword?: string): Promise<ChangePasswordResult> => {
     if (!configOk) {
@@ -333,7 +339,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       console.error("Appwrite change password error:", e);
       setIsLoading(false);
-       if (e instanceof AppwriteException && (e.code === 401 || e.code === 400)) { // Unauthorized or bad request (often wrong current pass)
+       if (e instanceof AppwriteException && (e.code === 401 || e.code === 400)) { 
             return { success: false, errorKey: 'invalid_current_password' };
        }
         if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
@@ -345,14 +351,6 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
   const updateProfilePicture = useCallback(async (imageDataUri: string): Promise<UpdateProfilePictureResult> => {
-      // Appwrite doesn't directly store image data URIs in prefs easily.
-      // Preferred methods:
-      // 1. Use Appwrite Storage: Upload the image (converted from data URI to File/Blob), get the file ID, store the ID in user prefs. Fetch image via Storage API.
-      // 2. Use Avatars Service: Use built-in generators (initials, gravatar, etc.) - URLs are dynamic.
-      // 3. External Storage: Store the data URI on another service and save the URL in prefs.
-
-      // For simplicity in this refactor, we'll *store the data URI directly in prefs*.
-      // WARNING: This is inefficient and not recommended for production due to size limits and performance.
        if (!configOk) {
            toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
            return { success: false, errorKey: 'config_error' };
@@ -362,7 +360,6 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       try {
           const currentPrefs = user.prefs || {};
           await account.updatePrefs({ ...currentPrefs, avatarUrl: imageDataUri });
-          // Optimistically update local state
           setUser(prev => prev ? { ...prev, prefs: { ...prev.prefs, avatarUrl: imageDataUri } } : null);
           setIsLoading(false);
           return { success: true };
@@ -383,7 +380,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!user,
       currentUserEmail: user?.email || null,
       currentUserName: user?.name || null,
-      currentUserAvatarUrl: user?.prefs?.avatarUrl || null, // Get from prefs
+      currentUserAvatarUrl: user?.prefs?.avatarUrl || null, 
       userId: user?.$id || null,
       login,
       logout,
@@ -400,7 +397,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useAuth() { // Renamed hook to useAuth
+export function useAuth() { 
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth måste användas inom en AuthProvider');
