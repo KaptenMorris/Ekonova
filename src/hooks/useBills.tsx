@@ -6,7 +6,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type { Bill } from '@/types';
 import { v4 as uuidv4 } from 'uuid'; // Keep for potential client-side ID needs before save
 import { ID, Databases, Query, AppwriteException } from 'appwrite';
-import { databases, databaseId, billsCollectionId } from '@/lib/appwrite';
+import { databases, databaseId, billsCollectionId, configOk } from '@/lib/appwrite'; // Import configOk
 import { useAuth } from '@/hooks/useMockAuth'; // Use the new Appwrite-based auth hook
 import { useToast } from './use-toast';
 
@@ -52,6 +52,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
   // Fetch bills from Appwrite
   const fetchBills = useCallback(async () => {
+    if (!configOk) {
+        setInternalIsLoadingBills(false);
+        console.error("Skipping fetchBills due to Appwrite configuration errors.");
+        return;
+    }
     if (!isAuthenticated || !userId) {
       setBills([]);
       setInternalIsLoadingBills(false);
@@ -68,7 +73,9 @@ export function BillProvider({ children }: { children: ReactNode }) {
       setBills(fetchedBills);
     } catch (e) {
       console.error("Appwrite: Failed to fetch bills:", e);
-       if (!(e instanceof AppwriteException && e.code === 404)) { // Ignore collection not found initially maybe? Or handle creation elsewhere
+       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+            toast({ title: "Nätverksfel", description: "Kunde inte ladda dina räkningar. Kontrollera din anslutning.", variant: "destructive" });
+       } else if (!(e instanceof AppwriteException && e.code === 404)) { // Ignore collection not found initially maybe? Or handle creation elsewhere
            toast({ title: "Fel", description: "Kunde inte ladda dina räkningar.", variant: "destructive" });
        }
       setBills([]);
@@ -87,6 +94,10 @@ export function BillProvider({ children }: { children: ReactNode }) {
   // --- CRUD Operations ---
 
   const addBill = useCallback(async (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>): Promise<Bill | null> => {
+    if (!configOk) {
+         toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
+         return null;
+    }
     if (!isAuthenticated || !userId) {
         toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad för att lägga till en räkning.", variant: "destructive" });
         return null;
@@ -121,7 +132,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
       return newBill;
     } catch (e) {
       console.error("Appwrite: Failed to add bill:", e);
-      toast({ title: "Fel", description: "Kunde inte lägga till räkningen.", variant: "destructive" });
+       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+           toast({ title: "Nätverksfel", description: "Kunde inte lägga till räkningen.", variant: "destructive" });
+       } else {
+           toast({ title: "Fel", description: "Kunde inte lägga till räkningen.", variant: "destructive" });
+       }
       setInternalIsLoadingBills(false);
       return null;
     }
@@ -129,7 +144,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
 
  const toggleBillPaidStatus = useCallback(async (billId: string): Promise<Bill | null> => {
-    if (!isAuthenticated || !userId) return null;
+    if (!configOk || !isAuthenticated || !userId) return null;
 
     const billToToggle = bills.find(b => b.id === billId);
     if (!billToToggle) {
@@ -173,7 +188,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
       return confirmedBill;
     } catch (e) {
       console.error("Appwrite: Failed to toggle bill status:", e);
-      toast({ title: "Fel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive" });
+       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+           toast({ title: "Nätverksfel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive" });
+       } else {
+          toast({ title: "Fel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive" });
+       }
       setBills(prevBills => prevBills.map(b => b.id === billId ? originalBill : b)); // Revert optimistic update
       setInternalIsLoadingBills(false);
       return null;
@@ -182,7 +201,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
 
   const deleteBill = useCallback(async (billId: string) => {
-    if (!isAuthenticated || !userId) return;
+    if (!configOk || !isAuthenticated || !userId) return;
     const billToDelete = bills.find(b => b.id === billId);
     const originalBills = [...bills]; // Backup
 
@@ -200,7 +219,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
       // Toast handled by BillsPage which calls this
     } catch (e) {
       console.error("Appwrite: Failed to delete bill:", e);
-      toast({ title: "Fel", description: "Kunde inte radera räkningen.", variant: "destructive" });
+      if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+          toast({ title: "Nätverksfel", description: "Kunde inte radera räkningen.", variant: "destructive" });
+      } else {
+          toast({ title: "Fel", description: "Kunde inte radera räkningen.", variant: "destructive" });
+      }
       setBills(originalBills); // Revert optimistic update
       setInternalIsLoadingBills(false);
     }
@@ -208,7 +231,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
 
   const updateBill = useCallback(async (updatedBillData: Bill): Promise<Bill | null> => {
-    if (!isAuthenticated || !userId) return null;
+    if (!configOk || !isAuthenticated || !userId) return null;
     const { id, userId: billUserId, ...dataToUpdate } = updatedBillData; // Separate ID and internal userId from data
 
     const originalBill = bills.find(b => b.id === id);
@@ -244,7 +267,11 @@ export function BillProvider({ children }: { children: ReactNode }) {
       return confirmedBill;
     } catch (e) {
       console.error("Appwrite: Failed to update bill:", e);
-      toast({ title: "Fel", description: "Kunde inte uppdatera räkningen.", variant: "destructive" });
+       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+           toast({ title: "Nätverksfel", description: "Kunde inte uppdatera räkningen.", variant: "destructive" });
+       } else {
+           toast({ title: "Fel", description: "Kunde inte uppdatera räkningen.", variant: "destructive" });
+       }
       setBills(prevBills => prevBills.map(b => b.id === id ? originalBill : b)); // Revert optimistic update
       setInternalIsLoadingBills(false);
       return null;

@@ -10,7 +10,7 @@ import React, {
   type ReactNode
 } from 'react';
 import { useRouter } from 'next/navigation';
-import { account, avatars } from '@/lib/appwrite'; // Use Appwrite client
+import { account, avatars, configOk } from '@/lib/appwrite'; // Use Appwrite client and import configOk
 import { AppwriteException, ID } from 'appwrite';
 import { useToast } from './use-toast';
 
@@ -28,27 +28,27 @@ interface AppwriteUser {
 
 interface LoginResult {
   success: boolean;
-  errorKey?: 'invalid_credentials' | 'account_not_verified' | 'generic_error';
+  errorKey?: 'invalid_credentials' | 'account_not_verified' | 'config_error' | 'generic_error';
 }
 
 interface SignupResult {
   success: boolean;
-  messageKey?: 'verification_sent' | 'already_registered' | 'generic_error';
+  messageKey?: 'verification_sent' | 'already_registered' | 'config_error' | 'generic_error';
 }
 
 interface VerifyEmailResult {
     success: boolean;
-    errorKey?: 'invalid_token' | 'already_verified' | 'generic_error';
+    errorKey?: 'invalid_token' | 'already_verified' | 'config_error' | 'generic_error';
 }
 
 interface ChangePasswordResult {
   success: boolean;
-  errorKey?: 'invalid_current_password' | 'generic_error';
+  errorKey?: 'invalid_current_password' | 'config_error' | 'generic_error';
 }
 
 interface UpdateProfilePictureResult {
   success: boolean;
-  errorKey?: 'generic_error';
+  errorKey?: 'config_error' | 'generic_error';
 }
 
 interface AuthContextType {
@@ -77,6 +77,12 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   const fetchUser = useCallback(async () => {
+    if (!configOk) {
+        setIsLoading(false);
+        setUser(null);
+        console.error("Skipping fetchUser due to Appwrite configuration errors.");
+        return; // Don't attempt if config is bad
+    }
     setIsLoading(true);
     try {
       const currentUser = await account.get() as AppwriteUser;
@@ -93,7 +99,14 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
        }
 
     } catch (e) {
-      setUser(null); // Not logged in
+      // Detailed logging for fetch failure
+      if (e instanceof AppwriteException) {
+          console.error(`Appwrite fetchUser error (Code: ${e.code}): ${e.message}. Type: ${e.type}`);
+          // Common codes: 401 (not authenticated), 403 (forbidden), network errors might lack code but have message
+      } else {
+          console.error("Generic fetchUser error:", e);
+      }
+      setUser(null); // Not logged in or failed to fetch
     } finally {
       setIsLoading(false);
     }
@@ -104,6 +117,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUser]);
 
   const login = useCallback(async (email?: string, password?: string): Promise<LoginResult> => {
+    if (!configOk) return { success: false, errorKey: 'config_error' };
     if (!email || !password) return { success: false, errorKey: 'invalid_credentials' };
     setIsLoading(true);
     try {
@@ -116,25 +130,37 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       if (e instanceof AppwriteException) {
           if (e.code === 401) { // Unauthorized
-              // Check if it's due to unverified email
+              // Check if it's due to unverified email - difficult to distinguish reliably client-side without trying fetchUser again or specific API response
+              // Appwrite might return 401 for both bad creds and unverified email in some flows.
+              // Let's check the user status IF a session was partially created (might not be the case)
               try {
-                  // Try getting the user to check verification status - THIS MIGHT FAIL if session not created at all
-                  // A better approach might be needed depending on Appwrite's exact 401 reason separation
-                  // For now, assume 401 could mean bad credentials OR unverified
-                   return { success: false, errorKey: 'invalid_credentials' }; // Simplified
-              } catch (userError) {
+                  const tempUser = await account.get();
+                  if (!tempUser.emailVerification) {
+                      return { success: false, errorKey: 'account_not_verified' };
+                  }
+              } catch (getUserError) {
+                 // If getting user fails after session attempt, likely bad credentials
                  return { success: false, errorKey: 'invalid_credentials' };
               }
+              // If we somehow get here, assume invalid credentials
+              return { success: false, errorKey: 'invalid_credentials' };
           }
+           // Sometimes unverified might be a 400 with specific message
           if (e.code === 400 && e.message.toLowerCase().includes('verify')) {
                return { success: false, errorKey: 'account_not_verified' };
           }
+          // Handle other potential Appwrite errors (e.g., network, server unavailable)
+           if (e.message.includes('Failed to fetch')) {
+               toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och försök igen.", variant: "destructive" });
+               return { success: false, errorKey: 'generic_error' };
+           }
       }
       return { success: false, errorKey: 'invalid_credentials' }; // Default to invalid credentials
     }
-  }, [router, fetchUser]);
+  }, [router, fetchUser, toast]);
 
   const logout = useCallback(async () => {
+    if (!configOk) return; // Don't attempt if config is bad
     setIsLoading(true);
     try {
       await account.deleteSession('current');
@@ -149,6 +175,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [router, toast]);
 
   const signup = useCallback(async (email?: string, password?: string, name?: string): Promise<SignupResult> => {
+    if (!configOk) return { success: false, messageKey: 'config_error' };
     if (!email || !password || !name) return { success: false, messageKey: 'generic_error' };
     setIsLoading(true);
     try {
@@ -171,11 +198,16 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       if (e instanceof AppwriteException && e.code === 409) { // User already exists
         return { success: false, messageKey: 'already_registered' };
       }
+      if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+           toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och försök igen.", variant: "destructive" });
+           return { success: false, messageKey: 'generic_error' };
+      }
       return { success: false, messageKey: 'generic_error' };
     }
-  }, []);
+  }, [toast]);
 
    const verifyEmail = useCallback(async (userId: string, secret: string): Promise<VerifyEmailResult> => {
+    if (!configOk) return { success: false, errorKey: 'config_error' };
     setIsLoading(true);
     try {
         await account.updateVerification(userId, secret);
@@ -192,12 +224,17 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
              if (e.code === 404 || e.code === 401) { // Not found or invalid
                 return { success: false, errorKey: 'invalid_token' };
              }
+             if (e.message.includes('Failed to fetch')) {
+                 toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning.", variant: "destructive" });
+                 return { success: false, errorKey: 'generic_error' };
+             }
          }
         return { success: false, errorKey: 'generic_error' };
     }
-  }, []);
+  }, [toast]);
 
    const resendVerification = useCallback(async (): Promise<{ success: boolean; errorKey?: string }> => {
+       if (!configOk) return { success: false, errorKey: 'config_error' };
         setIsLoading(true);
         const verificationUrl = typeof window !== 'undefined' ? `${window.location.origin}/verify-email` : '';
         if (!verificationUrl) {
@@ -217,7 +254,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
              if (e instanceof AppwriteException && e.message.includes('already verified')) {
                  errorKey = 'already_verified';
                  toast({ title: "Redan Verifierad", description: "Ditt konto är redan verifierat.", variant: "default" });
-             } else {
+             } else if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+                  toast({ title: "Nätverksfel", description: "Kunde inte skicka verifieringsmail.", variant: "destructive" });
+             }
+             else {
                 toast({ title: "Fel", description: "Kunde inte skicka verifieringsmail.", variant: "destructive" });
              }
             return { success: false, errorKey: errorKey };
@@ -241,6 +281,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [logout, toast]);
 
   const changePassword = useCallback(async (currentPassword?: string, newPassword?: string): Promise<ChangePasswordResult> => {
+    if (!configOk) return { success: false, errorKey: 'config_error' };
     if (!currentPassword || !newPassword) return { success: false, errorKey: 'generic_error' };
     setIsLoading(true);
     try {
@@ -253,9 +294,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
        if (e instanceof AppwriteException && (e.code === 401 || e.code === 400)) { // Unauthorized or bad request (often wrong current pass)
             return { success: false, errorKey: 'invalid_current_password' };
        }
+        if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+           toast({ title: "Nätverksfel", description: "Kunde inte ändra lösenord. Kontrollera din anslutning.", variant: "destructive" });
+           return { success: false, errorKey: 'generic_error' };
+        }
       return { success: false, errorKey: 'generic_error' };
     }
-  }, []);
+  }, [toast]);
 
   const updateProfilePicture = useCallback(async (imageDataUri: string): Promise<UpdateProfilePictureResult> => {
       // Appwrite doesn't directly store image data URIs in prefs easily.
@@ -266,6 +311,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
       // For simplicity in this refactor, we'll *store the data URI directly in prefs*.
       // WARNING: This is inefficient and not recommended for production due to size limits and performance.
+       if (!configOk) return { success: false, errorKey: 'config_error' };
       if (!user) return { success: false, errorKey: 'generic_error' };
        setIsLoading(true);
       try {
@@ -278,9 +324,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       } catch (e) {
           console.error("Appwrite update avatar pref error:", e);
           setIsLoading(false);
+          if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+             toast({ title: "Nätverksfel", description: "Kunde inte uppdatera profilbild. Kontrollera din anslutning.", variant: "destructive" });
+             return { success: false, errorKey: 'generic_error' };
+          }
           return { success: false, errorKey: 'generic_error' };
       }
-  }, [user]);
+  }, [user, toast]);
 
 
   return (

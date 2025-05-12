@@ -6,7 +6,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type { Board, Category, Transaction } from '@/types';
 import { v4 as uuidv4 } from 'uuid'; // Keep for client-side generation if needed before Appwrite ID
 import { ID, Databases, Query, AppwriteException } from 'appwrite';
-import { databases, databaseId, boardsCollectionId } from '@/lib/appwrite';
+import { databases, databaseId, boardsCollectionId, configOk } from '@/lib/appwrite'; // Import configOk
 import { INITIAL_BOARD_CATEGORY_TEMPLATES, DEFAULT_BOARD_NAME } from '@/config/constants';
 import { useAuth } from '@/hooks/useMockAuth'; // Use the new Appwrite-based auth hook
 import { useToast } from './use-toast';
@@ -87,6 +87,11 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
   // Fetch boards from Appwrite
   const fetchBoards = useCallback(async () => {
+    if (!configOk) {
+        setInternalIsLoadingBoards(false);
+        console.error("Skipping fetchBoards due to Appwrite configuration errors.");
+        return;
+    }
     if (!isAuthenticated || !userId) {
       setBoards([]);
       setActiveBoardIdState(null);
@@ -109,7 +114,9 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
       if (fetchedBoards.length === 0) {
         // No boards found, create the default one
-        const defaultBoard = await addBoard(DEFAULT_BOARD_NAME); // addBoard handles saving to Appwrite
+        // Use a temporary flag to avoid re-fetching immediately after adding
+        const isCreatingDefault = true;
+        const defaultBoard = await addBoard(DEFAULT_BOARD_NAME, isCreatingDefault); // addBoard handles saving to Appwrite
         if (defaultBoard && typeof window !== 'undefined') {
             localStorage.setItem(activeIdKey, defaultBoard.id); // Set newly created board as active
         }
@@ -127,13 +134,18 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
     } catch (e) {
       console.error("Appwrite: Failed to fetch boards:", e);
-      toast({ title: "Fel", description: "Kunde inte ladda dina tavlor.", variant: "destructive" });
+      if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+           toast({ title: "Nätverksfel", description: "Kunde inte ladda dina tavlor. Kontrollera din anslutning.", variant: "destructive" });
+      } else {
+          toast({ title: "Fel", description: "Kunde inte ladda dina tavlor.", variant: "destructive" });
+      }
       setBoards([]);
       setActiveBoardIdState(null);
     } finally {
       setInternalIsLoadingBoards(false);
     }
-  }, [isAuthenticated, userId, toast]); // Removed addBoard from dependency array to break potential loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, userId, toast]); // Removed addBoard from dependency array
 
 
   // Effect to load boards when auth state changes
@@ -164,12 +176,17 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
   // --- CRUD Operations ---
 
-  const addBoard = useCallback(async (name: string): Promise<Board | null> => {
+  const addBoard = useCallback(async (name: string, isCreatingDefault = false): Promise<Board | null> => {
+    if (!configOk) {
+         toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
+         return null;
+    }
     if (!isAuthenticated || !userId) {
         toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad för att skapa en tavla.", variant: "destructive" });
         return null;
     }
-    setInternalIsLoadingBoards(true);
+    if (!isCreatingDefault) setInternalIsLoadingBoards(true); // Only show loading for user-initiated adds
+
     const newCategories = INITIAL_BOARD_CATEGORY_TEMPLATES.map(template => ({
       ...template,
       id: uuidv4(), // Client-side ID generation for nested items
@@ -195,20 +212,26 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       const newBoard = mapDocumentToBoard(document as unknown as AppwriteBoardDocument);
       setBoards(prevBoards => [...prevBoards, newBoard]);
       setActiveBoardId(newBoard.id); // Make the new board active
-      setInternalIsLoadingBoards(false);
-      toast({ title: "Tavla Skapad", description: `Tavlan "${name}" har skapats.` });
+      if (!isCreatingDefault) {
+          setInternalIsLoadingBoards(false);
+          toast({ title: "Tavla Skapad", description: `Tavlan "${name}" har skapats.` });
+      }
       return newBoard;
     } catch (e) {
       console.error("Appwrite: Failed to add board:", e);
-      toast({ title: "Fel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
-      setInternalIsLoadingBoards(false);
+       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+           toast({ title: "Nätverksfel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
+       } else {
+           toast({ title: "Fel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
+       }
+      if (!isCreatingDefault) setInternalIsLoadingBoards(false);
       return null;
     }
   }, [isAuthenticated, userId, toast, setActiveBoardId]);
 
 
   const renameBoard = useCallback(async (boardId: string, newName: string) => {
-    if (!isAuthenticated || !userId) return;
+    if (!configOk || !isAuthenticated || !userId) return;
     setInternalIsLoadingBoards(true);
      const originalBoards = [...boards]; // Backup for optimistic revert
      // Optimistic UI Update
@@ -228,7 +251,11 @@ export function BoardProvider({ children }: { children: ReactNode }) {
        toast({ title: "Tavla Omdöpt", description: `Tavlan har döpts om till "${newName}".` });
     } catch (e) {
       console.error("Appwrite: Failed to rename board:", e);
-      toast({ title: "Fel", description: "Kunde inte döpa om tavlan.", variant: "destructive" });
+       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+          toast({ title: "Nätverksfel", description: "Kunde inte döpa om tavlan.", variant: "destructive" });
+       } else {
+          toast({ title: "Fel", description: "Kunde inte döpa om tavlan.", variant: "destructive" });
+       }
       setBoards(originalBoards); // Revert optimistic update on error
     } finally {
         setInternalIsLoadingBoards(false);
@@ -236,7 +263,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, userId, boards, toast]);
 
   const deleteBoard = useCallback(async (boardId: string) => {
-    if (!isAuthenticated || !userId) return;
+    if (!configOk || !isAuthenticated || !userId) return;
     setInternalIsLoadingBoards(true);
     const boardToDelete = boards.find(b => b.id === boardId);
     const originalBoards = [...boards]; // Backup for optimistic revert
@@ -265,12 +292,16 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       // If delete is successful, optimistic update is final.
       // If no boards remain, trigger creation of a default one
       if (updatedBoardsOptimistic.length === 0) {
-          await addBoard(DEFAULT_BOARD_NAME); // This will set the new default as active
+          await addBoard(DEFAULT_BOARD_NAME, true); // This will set the new default as active
       }
 
     } catch (e) {
       console.error("Appwrite: Failed to delete board:", e);
-      toast({ title: "Fel", description: "Kunde inte radera tavlan.", variant: "destructive" });
+       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+          toast({ title: "Nätverksfel", description: "Kunde inte radera tavlan.", variant: "destructive" });
+       } else {
+          toast({ title: "Fel", description: "Kunde inte radera tavlan.", variant: "destructive" });
+       }
       // Revert optimistic update on error
       setBoards(originalBoards);
       // Also revert active board ID if it was changed optimistically
@@ -285,7 +316,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
   // --- Modify Active Board Helper ---
    const modifyActiveBoard = useCallback(async (updateFn: (board: Board) => Partial<AppwriteBoardDocument> | null): Promise<Board | null> => {
-    if (!isAuthenticated || !userId || !activeBoardId) return null;
+    if (!configOk || !isAuthenticated || !userId || !activeBoardId) return null;
 
     const currentBoard = boards.find(b => b.id === activeBoardId);
     if (!currentBoard) return null;
@@ -327,7 +358,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
             databaseId,
             boardsCollectionId,
             activeBoardId,
-            updateData
+            updateData // Send only the fields to update (e.g., { categories: '...' })
         );
          // Update local state with the confirmed data from Appwrite
          const confirmedBoard = mapDocumentToBoard(updatedDoc as unknown as AppwriteBoardDocument);
@@ -337,7 +368,11 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
     } catch (e) {
       console.error("Appwrite: Failed to update active board:", e);
-      toast({ title: "Fel", description: "Kunde inte uppdatera tavlan.", variant: "destructive" });
+       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+          toast({ title: "Nätverksfel", description: "Kunde inte uppdatera tavlan.", variant: "destructive" });
+       } else {
+          toast({ title: "Fel", description: "Kunde inte uppdatera tavlan.", variant: "destructive" });
+       }
       setBoards(originalBoards); // Revert optimistic update
       setInternalIsLoadingBoards(false);
       return null;
@@ -348,7 +383,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   // --- Category and Transaction Operations (using modifyActiveBoard) ---
 
   const addCategoryToActiveBoard = useCallback(async (categoryData: Omit<Category, 'id'>): Promise<Category | null> => {
-     if (!isAuthenticated || !userId || !activeBoardId) return null;
+     if (!configOk || !isAuthenticated || !userId || !activeBoardId) return null;
      const newCategory: Category = {
        ...categoryData,
        id: uuidv4(), // Generate ID client-side
@@ -367,7 +402,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
 
   const deleteCategoryFromActiveBoard = useCallback(async (categoryId: string) => {
-     if (!isAuthenticated || !userId || !activeBoardId) return;
+     if (!configOk || !isAuthenticated || !userId || !activeBoardId) return;
      let categoryName = '';
      await modifyActiveBoard(board => {
         const categoryToDelete = board.categories.find(c => c.id === categoryId);
@@ -383,7 +418,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
 
   const addTransactionToActiveBoard = useCallback(async (transactionData: Omit<Transaction, 'id'>): Promise<Transaction | null> => {
-    if (!isAuthenticated || !userId || !activeBoardId) return null;
+    if (!configOk || !isAuthenticated || !userId || !activeBoardId) return null;
     const newTransaction: Transaction = { ...transactionData, id: uuidv4() };
      let resultTransaction: Transaction | null = null;
     await modifyActiveBoard(board => {
@@ -398,7 +433,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
 
   const updateTransactionInActiveBoard = useCallback(async (updatedTransaction: Transaction): Promise<Transaction | null> => {
-     if (!isAuthenticated || !userId || !activeBoardId) return null;
+     if (!configOk || !isAuthenticated || !userId || !activeBoardId) return null;
      let resultTransaction: Transaction | null = null;
      await modifyActiveBoard(board => {
         const updatedTransactions = board.transactions.map(t =>
@@ -414,7 +449,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
 
   const deleteTransactionFromActiveBoard = useCallback(async (transactionId: string) => {
-     if (!isAuthenticated || !userId || !activeBoardId) return;
+     if (!configOk || !isAuthenticated || !userId || !activeBoardId) return;
      let transactionTitle = '';
      await modifyActiveBoard(board => {
         const txToDelete = board.transactions.find(t => t.id === transactionId);
@@ -428,7 +463,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
  // --- Sharing (Placeholder/Mock - Requires backend/permissions setup in Appwrite) ---
   const shareBoard = useCallback(async (boardId: string, email: string) => {
-     if (!isAuthenticated || !userId) return;
+     if (!configOk || !isAuthenticated || !userId) return;
       // Appwrite sharing involves setting document permissions, which is complex and usually requires backend logic or careful client-side permission setup.
       // This mock implementation just updates the 'sharedWith' array optimistically.
      console.warn("Appwrite sharing logic not fully implemented. Mocking sharedWith update.");
@@ -446,7 +481,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, userId, modifyActiveBoard, toast]);
 
   const unshareBoard = useCallback(async (boardId: string, email: string) => {
-     if (!isAuthenticated || !userId) return;
+     if (!configOk || !isAuthenticated || !userId) return;
      console.warn("Appwrite unsharing logic not fully implemented. Mocking sharedWith update.");
       toast({ title: "Avdelning (Demo)", description: `Delning med ${email} skulle tas bort. Kräver Appwrite permissions-setup.`, variant: "default" });
 
