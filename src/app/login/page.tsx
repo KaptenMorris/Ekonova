@@ -86,81 +86,88 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-secondary/50 p-4">
-      <div className="mb-8">
-        <Logo iconSize={48} textSize="text-5xl" />
-      </div>
-      <Card className="w-full max-w-md shadow-xl">
-        <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold text-primary">Välkommen Tillbaka!</CardTitle>
-          <CardDescription>Logga in för att hantera din ekonomi med Ekonova.</CardDescription>
-        </CardHeader>
-        <CardContent>
-           {showVerificationPrompt && (
-             <Alert variant="destructive" className="mb-6">
-               <ShieldAlert className="h-5 w-5" />
-               <AlertTitle>Konto Ej Verifierat</AlertTitle>
-               <AlertDescription>
-                 Kontrollera din e-post för verifieringslänken. Har du inte fått någon?
-                 <Button
-                    variant="link"
-                    className="p-0 h-auto ml-1 text-destructive font-semibold"
-                    onClick={handleResendVerification}
+    <div
+      className="flex min-h-screen flex-col items-center justify-center bg-cover bg-center bg-no-repeat p-4"
+      style={{ backgroundImage: "url('https://picsum.photos/1920/1080')" }}
+      data-ai-hint="abstract background"
+    >
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"></div> {/* Overlay for better readability */}
+      <div className="relative z-10 flex flex-col items-center"> {/* Content wrapper */}
+        <div className="mb-8">
+          <Logo iconSize={48} textSize="text-5xl" />
+        </div>
+        <Card className="w-full max-w-md shadow-xl bg-card/80 backdrop-blur-md"> {/* Semi-transparent card */}
+          <CardHeader className="text-center">
+            <CardTitle className="text-3xl font-bold text-primary">Välkommen Tillbaka!</CardTitle>
+            <CardDescription>Logga in för att hantera din ekonomi med Ekonova.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {showVerificationPrompt && (
+              <Alert variant="destructive" className="mb-6">
+                <ShieldAlert className="h-5 w-5" />
+                <AlertTitle>Konto Ej Verifierat</AlertTitle>
+                <AlertDescription>
+                  Kontrollera din e-post för verifieringslänken. Har du inte fått någon?
+                  <Button
+                      variant="link"
+                      className="p-0 h-auto ml-1 text-destructive font-semibold"
+                      onClick={handleResendVerification}
+                      disabled={isSubmitting}
+                  >
+                      Skicka igen
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="email">E-post</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="du@exempel.com"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="pl-10"
                     disabled={isSubmitting}
-                 >
-                    Skicka igen
-                 </Button>
-               </AlertDescription>
-             </Alert>
-           )}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="email">E-post</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="du@exempel.com"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-10"
-                  disabled={isSubmitting}
-                />
+                  />
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Lösenord</Label>
-               <div className="relative">
-                <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
-                  disabled={isSubmitting}
-                />
+              <div className="space-y-2">
+                <Label htmlFor="password">Lösenord</Label>
+                <div className="relative">
+                  <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="pl-10"
+                    disabled={isSubmitting}
+                  />
+                </div>
               </div>
-            </div>
-            <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6" disabled={isSubmitting}>
-              {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
-              {isSubmitting ? 'Loggar in...' : 'Logga In'}
-            </Button>
-          </form>
-        </CardContent>
-        <CardFooter className="flex flex-col items-center space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Har du inget konto?{" "}
-            <Link href="/signup" className="font-semibold text-primary hover:underline">
-              Registrera Dig
-            </Link>
-          </p>
-        </CardFooter>
-      </Card>
+              <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6" disabled={isSubmitting}>
+                {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
+                {isSubmitting ? 'Loggar in...' : 'Logga In'}
+              </Button>
+            </form>
+          </CardContent>
+          <CardFooter className="flex flex-col items-center space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Har du inget konto?{" "}
+              <Link href="/signup" className="font-semibold text-primary hover:underline">
+                Registrera Dig
+              </Link>
+            </p>
+          </CardFooter>
+        </Card>
+      </div>
     </div>
   );
 }

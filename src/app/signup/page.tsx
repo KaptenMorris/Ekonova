@@ -96,106 +96,113 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-secondary/50 p-4">
-      <div className="mb-8">
-        <Logo iconSize={48} textSize="text-5xl" />
-      </div>
-      <Card className="w-full max-w-md shadow-xl">
-        <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold text-primary">Skapa Ditt Konto</CardTitle>
-          <CardDescription>Gå med i Ekonova och ta kontroll över din ekonomi.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {showVerificationMessage ? (
-            <Alert variant="default" className="mb-6">
-              <ShieldCheck className="h-5 w-5" />
-              <AlertTitle>Verifiera Din E-postadress</AlertTitle>
-              <AlertDescription>
-                Ett verifieringsmail har skickats till <strong>{email}</strong>.
-                Klicka på länken i mailet för att aktivera ditt konto. Kolla även skräpposten.
-                 <div className='mt-3'>
-                     Har du inte fått något mail?
-                    <Button
-                        variant="link"
-                        className="p-0 h-auto ml-1 text-primary font-semibold"
-                        onClick={handleResendVerification}
-                        disabled={isSubmitting}
-                     >
-                        Skicka igen
-                     </Button>
-                 </div>
-                 <p className="mt-3">Redan verifierat? <Link href="/login" className="font-semibold text-primary hover:underline">Logga in här.</Link></p>
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="name">Fullständigt Namn</Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="name"
-                    type="text"
-                    placeholder="Ditt Namn"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="pl-10"
-                    disabled={isSubmitting}
-                  />
+    <div
+      className="flex min-h-screen flex-col items-center justify-center bg-cover bg-center bg-no-repeat p-4"
+      style={{ backgroundImage: "url('https://picsum.photos/1920/1080?grayscale')" }}
+      data-ai-hint="abstract pattern"
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"></div> {/* Overlay for better readability */}
+      <div className="relative z-10 flex flex-col items-center"> {/* Content wrapper */}
+        <div className="mb-8">
+          <Logo iconSize={48} textSize="text-5xl" />
+        </div>
+        <Card className="w-full max-w-md shadow-xl bg-card/80 backdrop-blur-md"> {/* Semi-transparent card */}
+          <CardHeader className="text-center">
+            <CardTitle className="text-3xl font-bold text-primary">Skapa Ditt Konto</CardTitle>
+            <CardDescription>Gå med i Ekonova och ta kontroll över din ekonomi.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {showVerificationMessage ? (
+              <Alert variant="default" className="mb-6">
+                <ShieldCheck className="h-5 w-5" />
+                <AlertTitle>Verifiera Din E-postadress</AlertTitle>
+                <AlertDescription>
+                  Ett verifieringsmail har skickats till <strong>{email}</strong>.
+                  Klicka på länken i mailet för att aktivera ditt konto. Kolla även skräpposten.
+                  <div className='mt-3'>
+                      Har du inte fått något mail?
+                      <Button
+                          variant="link"
+                          className="p-0 h-auto ml-1 text-primary font-semibold"
+                          onClick={handleResendVerification}
+                          disabled={isSubmitting}
+                      >
+                          Skicka igen
+                      </Button>
+                  </div>
+                  <p className="mt-3">Redan verifierat? <Link href="/login" className="font-semibold text-primary hover:underline">Logga in här.</Link></p>
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Fullständigt Namn</Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="name"
+                      type="text"
+                      placeholder="Ditt Namn"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="pl-10"
+                      disabled={isSubmitting}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">E-post</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="du@exempel.com"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10"
-                    disabled={isSubmitting}
-                  />
+                <div className="space-y-2">
+                  <Label htmlFor="email">E-post</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="du@exempel.com"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-10"
+                      disabled={isSubmitting}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Lösenord (minst 8 tecken)</Label>
-                <div className="relative">
-                  <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10"
-                    disabled={isSubmitting}
-                    minLength={8} // Basic client-side check
-                  />
+                <div className="space-y-2">
+                  <Label htmlFor="password">Lösenord (minst 8 tecken)</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="••••••••"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="pl-10"
+                      disabled={isSubmitting}
+                      minLength={8} // Basic client-side check
+                    />
+                  </div>
                 </div>
-              </div>
-              <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6" disabled={isSubmitting}>
-                {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <UserPlus className="mr-2 h-5 w-5" />}
-                {isSubmitting ? 'Registrerar...' : 'Registrera Dig'}
-              </Button>
-            </form>
+                <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6" disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <UserPlus className="mr-2 h-5 w-5" />}
+                  {isSubmitting ? 'Registrerar...' : 'Registrera Dig'}
+                </Button>
+              </form>
+            )}
+          </CardContent>
+          {!showVerificationMessage && (
+            <CardFooter className="flex flex-col items-center space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Har du redan ett konto?{" "}
+                <Link href="/login" className="font-semibold text-primary hover:underline">
+                  Logga In
+                </Link>
+              </p>
+            </CardFooter>
           )}
-        </CardContent>
-        {!showVerificationMessage && (
-          <CardFooter className="flex flex-col items-center space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Har du redan ett konto?{" "}
-              <Link href="/login" className="font-semibold text-primary hover:underline">
-                Logga In
-              </Link>
-            </p>
-          </CardFooter>
-        )}
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }
