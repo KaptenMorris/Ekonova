@@ -6,59 +6,60 @@ export const databaseId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
 export const boardsCollectionId = process.env.NEXT_PUBLIC_APPWRITE_BOARDS_COLLECTION_ID!;
 export const billsCollectionId = process.env.NEXT_PUBLIC_APPWRITE_BILLS_COLLECTION_ID!;
 
-// Helper to check for missing or placeholder values
-const isMissingOrPlaceholder = (value: string | undefined, placeholders: string[]) =>
-  !value || placeholders.some(p => value === p);
+// Helper to check for missing, empty, or placeholder values
+const isMissingOrPlaceholder = (value: string | undefined | null, placeholders: string[]) =>
+  !value || value.trim() === '' || placeholders.some(p => value === p);
 
 // Define placeholders to check against
-const endpointPlaceholders = ['YOUR_APPWRITE_ENDPOINT_URL', 'https://cloud.appwrite.io/v1']; // Including the default cloud URL as a potential *unconfigured* state
+const endpointPlaceholders = ['YOUR_APPWRITE_ENDPOINT_URL', 'https://cloud.appwrite.io/v1']; // Including default cloud URL might indicate lack of specific config
 const projectIdPlaceholders = ['YOUR_PROJECT_ID'];
 const databaseIdPlaceholders = ['YOUR_DATABASE_ID'];
 const boardsCollectionIdPlaceholders = ['YOUR_BOARDS_COLLECTION_ID'];
 const billsCollectionIdPlaceholders = ['YOUR_BILLS_COLLECTION_ID'];
 
 let configOk = true;
+const missingVars: string[] = [];
 
-// Check for missing or placeholder values and log warnings
+// Check each variable
 if (isMissingOrPlaceholder(endpoint, endpointPlaceholders)) {
-  console.warn(`WARNING: NEXT_PUBLIC_APPWRITE_ENDPOINT is not set correctly or is a placeholder in your .env.local file. Value: "${endpoint}". Update it with your actual Appwrite endpoint.`);
+  missingVars.push('NEXT_PUBLIC_APPWRITE_ENDPOINT');
   configOk = false;
 }
 if (isMissingOrPlaceholder(projectId, projectIdPlaceholders)) {
-  console.warn(`WARNING: NEXT_PUBLIC_APPWRITE_PROJECT_ID is not set correctly or is a placeholder in your .env.local file. Value: "${projectId}". Update it with your actual Appwrite project ID.`);
+  missingVars.push('NEXT_PUBLIC_APPWRITE_PROJECT_ID');
   configOk = false;
 }
 if (isMissingOrPlaceholder(databaseId, databaseIdPlaceholders)) {
-    console.warn(`WARNING: NEXT_PUBLIC_APPWRITE_DATABASE_ID is not set correctly or is a placeholder in your .env.local file. Value: "${databaseId}". Update it.`);
-    configOk = false;
+  missingVars.push('NEXT_PUBLIC_APPWRITE_DATABASE_ID');
+  configOk = false;
 }
 if (isMissingOrPlaceholder(boardsCollectionId, boardsCollectionIdPlaceholders)) {
-    console.warn(`WARNING: NEXT_PUBLIC_APPWRITE_BOARDS_COLLECTION_ID is not set correctly or is a placeholder in your .env.local file. Value: "${boardsCollectionId}". Update it.`);
-    configOk = false;
+  missingVars.push('NEXT_PUBLIC_APPWRITE_BOARDS_COLLECTION_ID');
+  configOk = false;
 }
 if (isMissingOrPlaceholder(billsCollectionId, billsCollectionIdPlaceholders)) {
-    console.warn(`WARNING: NEXT_PUBLIC_APPWRITE_BILLS_COLLECTION_ID is not set correctly or is a placeholder in your .env.local file. Value: "${billsCollectionId}". Update it.`);
-    configOk = false;
+  missingVars.push('NEXT_PUBLIC_APPWRITE_BILLS_COLLECTION_ID');
+  configOk = false;
 }
-
 
 const client = new Client();
 
-// Configure client only if endpoint and project ID seem valid
-if (configOk && endpoint && projectId) { // Added configOk check
+// Configure client only if all required variables are present and seem valid
+if (configOk) {
     client
-      .setEndpoint(endpoint)
-      .setProject(projectId);
+      .setEndpoint(endpoint!) // Use non-null assertion as configOk ensures they are defined
+      .setProject(projectId!);
 } else {
-    // Log a general configuration issue notice if configuration failed
-    console.error("Appwrite client configuration failed. Please check your .env.local file for correct NEXT_PUBLIC_ prefixed Appwrite endpoint, project ID, database ID, and collection IDs.");
-    // Optional: Throw an error to halt execution if config is absolutely required
+    // Log a detailed error message listing the problematic variables
+    console.error(`Appwrite client configuration failed. Please check your .env.local file and ensure the following environment variables are set correctly and do not contain placeholder values: ${missingVars.join(', ')}.`);
+    // Optional: Throw an error to halt execution if config is absolutely required, especially in production builds
     // throw new Error("Appwrite client not configured. Check environment variables.");
 }
 
-
+// Initialize Appwrite services regardless of config success,
+// but operations will fail if the client isn't configured.
 const account = new Account(client);
 const databases = new Databases(client);
 const avatars = new Avatars(client);
 
-export { client, account, databases, avatars };
+export { client, account, databases, avatars, configOk }; // Export configOk if needed elsewhere
