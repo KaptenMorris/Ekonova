@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMockAuth } from '@/hooks/useMockAuth';
+import { useAuth } from '@/hooks/useMockAuth'; // Use useAuth
 import { AppSidebar } from '@/components/dashboard/AppSidebar';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -15,18 +15,19 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { isAuthenticated, isLoading: isLoadingAuth, currentUserEmail } = useMockAuth();
-  const { isLoadingBoards } = useBoards(); 
+  const { isAuthenticated, isLoading: isLoadingAuth, currentUserEmail } = useAuth(); // Use useAuth
+  const { isLoadingBoards: isLoadingBoardsData } = useBoards(); // Get board loading state separately
   const router = useRouter();
 
   useEffect(() => {
+    // If auth has loaded and user is not authenticated, redirect to login
     if (!isLoadingAuth && !isAuthenticated) {
       router.replace('/login');
     }
   }, [isAuthenticated, isLoadingAuth, router]);
 
-  // isLoadingBoards from useBoards() now incorporates isLoadingAuth
-  const isLoading = isLoadingBoards; 
+  // Combine loading states
+  const isLoading = isLoadingAuth || isLoadingBoardsData;
 
   if (isLoading) {
     return (
@@ -39,9 +40,10 @@ export default function DashboardLayout({
 
   // This check ensures that if auth is loaded, but user is not authenticated,
   // we don't render the dashboard layout before redirect happens.
-  // currentUserEmail check added for extra safety after auth changes.
-  if (!isLoadingAuth && (!isAuthenticated || !currentUserEmail)) {
-    return (
+  if (!isAuthenticated) {
+    // Even if not loading, if not authenticated, show loading/redirecting state
+    // as the useEffect above will trigger the redirect shortly.
+     return (
          <div className="flex h-screen w-full items-center justify-center bg-background">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
             <span className="ml-4 text-lg">Omdirigerar...</span>
@@ -49,7 +51,7 @@ export default function DashboardLayout({
     );
   }
 
-
+  // Only render dashboard if authenticated and not loading
   return (
     <SidebarProvider defaultOpen>
       <div className="flex min-h-screen w-full">

@@ -3,7 +3,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useMockAuth } from "@/hooks/useMockAuth";
+import { useAuth } from "@/hooks/useMockAuth"; // Use useAuth
 import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,51 +13,46 @@ import { Logo } from "@/components/shared/Logo";
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { verifyEmail, login, isLoading: isLoadingAuth } = useMockAuth();
+  const { verifyEmail, isLoading: isLoadingAuth } = useAuth(); // Get verifyEmail from useAuth
   const [status, setStatus] = useState<"loading" | "success" | "error" | "already_verified">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
-
 
   useEffect(() => {
-    const token = searchParams.get("token");
-    if (!token) {
+    const userId = searchParams.get("userId");
+    const secret = searchParams.get("secret");
+
+    if (!userId || !secret) {
       setStatus("error");
-      setErrorMessage("Verifieringstoken saknas.");
+      setErrorMessage("Verifieringsinformation saknas i länken.");
       return;
     }
 
     const verify = async () => {
-      const result = await verifyEmail(token);
+      setStatus("loading");
+      const result = await verifyEmail(userId, secret); // Call Appwrite verification
       if (result.success) {
-        if(result.errorKey === 'already_verified'){
+         if(result.errorKey === 'already_verified'){
             setStatus("already_verified");
         } else {
-            setStatus("success");
-             // Try to extract email from token for display, or find a better way if available
-            // For mock, we don't easily get email from token, so we might need to adjust verifyEmail to return it
-            // Or, more simply, just show a generic success message.
-            // For now, let's assume the user knows which email they were verifying.
+             setStatus("success");
         }
       } else {
         setStatus("error");
         if (result.errorKey === 'invalid_token') {
-          setErrorMessage("Ogiltig eller utgången verifieringstoken.");
+          setErrorMessage("Ogiltig eller utgången verifieringslänk.");
         } else {
-          setErrorMessage("Ett fel uppstod vid verifieringen. Försök igen.");
+          setErrorMessage("Ett fel uppstod vid verifieringen. Försök registrera dig igen eller kontakta support.");
         }
       }
     };
-    
-    // Wait for auth to load before attempting verification, to avoid race conditions with user state
-    if(!isLoadingAuth){
-        verify();
-    }
 
-  }, [searchParams, verifyEmail, isLoadingAuth, router]);
+    // No need to wait for isLoadingAuth here, verification is independent of current session
+    verify();
+
+  }, [searchParams, verifyEmail]);
 
 
-  if (status === "loading" || isLoadingAuth) {
+  if (status === "loading") { // isLoadingAuth check removed, handled by verify status
     return (
       <div className="flex flex-col items-center justify-center text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -86,7 +81,7 @@ function VerifyEmailContent() {
             </Button>
           </div>
         )}
-        {status === "already_verified" && (
+         {status === "already_verified" && (
           <div className="space-y-4">
             <CheckCircle className="h-16 w-16 text-primary mx-auto" />
             <CardDescription className="text-lg">
@@ -128,6 +123,7 @@ export default function VerifyEmailPage() {
             <div className="mb-8">
                 <Logo iconSize={48} textSize="text-5xl" />
             </div>
+            {/* Use Suspense boundary for client components using searchParams */}
             <Suspense fallback={
                 <div className="flex flex-col items-center justify-center text-center">
                     <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />

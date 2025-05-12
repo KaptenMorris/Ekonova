@@ -1,7 +1,9 @@
+
 import type { Category } from '@/types';
 
 // Template for initial categories. IDs will be generated dynamically.
-export const INITIAL_BOARD_CATEGORY_TEMPLATES: Omit<Category, 'id' | 'boardId'>[] = [
+// boardId is removed as categories are now nested within the board document itself (as JSON).
+export const INITIAL_BOARD_CATEGORY_TEMPLATES: Omit<Category, 'id'>[] = [
   { name: "Inkomst", type: "income", icon: "TrendingUp" },
   { name: "Boende", type: "expense", icon: "Home" },
   { name: "Mat & Livsmedel", type: "expense", icon: "Utensils" },
@@ -15,4 +17,3 @@ export const INITIAL_BOARD_CATEGORY_TEMPLATES: Omit<Category, 'id' | 'boardId'>[
 export const DEFAULT_BOARD_NAME = "Min Första Tavla";
 export const SHOPPING_CATEGORY_NAME = "Inköp";
 export const SHOPPING_CATEGORY_ICON = "ShoppingCart";
-

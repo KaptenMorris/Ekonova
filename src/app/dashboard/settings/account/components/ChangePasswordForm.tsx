@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useMockAuth } from "@/hooks/useMockAuth";
+import { useAuth } from "@/hooks/useMockAuth"; // Use useAuth
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, KeyRound } from "lucide-react";
 
 export function ChangePasswordForm() {
-  const { changePassword } = useMockAuth();
+  const { changePassword } = useAuth(); // Use useAuth
   const { toast } = useToast();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -27,10 +27,10 @@ export function ChangePasswordForm() {
       });
       return;
     }
-    if (newPassword.length < 6) { // Basic validation
+     if (newPassword.length < 8) { // Enforce Appwrite's default minimum password length
       toast({
         title: "För Kort Lösenord",
-        description: "Ditt nya lösenord måste vara minst 6 tecken långt.",
+        description: "Ditt nya lösenord måste vara minst 8 tecken långt.",
         variant: "destructive",
       });
       return;
@@ -79,7 +79,7 @@ export function ChangePasswordForm() {
         </div>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="newPassword">Nytt Lösenord</Label>
+        <Label htmlFor="newPassword">Nytt Lösenord (minst 8 tecken)</Label>
         <div className="relative">
             <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -90,6 +90,7 @@ export function ChangePasswordForm() {
             required
             className="pl-10"
             disabled={isSubmitting}
+            minLength={8} // Basic client-side check
             />
         </div>
       </div>
@@ -105,6 +106,7 @@ export function ChangePasswordForm() {
             required
             className="pl-10"
             disabled={isSubmitting}
+            minLength={8}
             />
         </div>
       </div>

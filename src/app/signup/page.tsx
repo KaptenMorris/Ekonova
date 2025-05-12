@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useMockAuth } from "@/hooks/useMockAuth";
+import { useAuth } from "@/hooks/useMockAuth"; // Use useAuth
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function SignupPage() {
-  const { signup, isAuthenticated, isLoading: isLoadingAuth } = useMockAuth();
+  const { signup, isAuthenticated, isLoading: isLoadingAuth, resendVerification } = useAuth(); // Use useAuth
   const router = useRouter();
   const { toast } = useToast();
   const [name, setName] = useState('');
@@ -23,7 +23,6 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showVerificationMessage, setShowVerificationMessage] = useState(false);
-  const [mockVerificationLink, setMockVerificationLink] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -31,6 +30,13 @@ export default function SignupPage() {
       router.replace('/dashboard');
     }
   }, [isAuthenticated, isLoadingAuth, router]);
+
+  const handleResendVerification = async () => {
+    setIsSubmitting(true);
+    await resendVerification(); // Use the function from useAuth
+    setIsSubmitting(false);
+  };
+
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -42,28 +48,35 @@ export default function SignupPage() {
         });
         return;
     }
+     if (password.length < 8) { // Enforce Appwrite's default minimum password length
+        toast({
+            title: "Registrering Misslyckad",
+            description: "Lösenordet måste vara minst 8 tecken långt.",
+            variant: "destructive",
+        });
+        return;
+    }
+
     setIsSubmitting(true);
-    setShowVerificationMessage(false);
-    setMockVerificationLink(null);
+    setShowVerificationMessage(false); // Reset verification message display
 
     const result = await signup(email, password, name);
     setIsSubmitting(false);
 
     if (result.success) {
-      if (result.messageKey === 'verification_sent' || result.messageKey === 'verification_resent') {
-        setShowVerificationMessage(true);
-        if (result.verificationTokenForMock && typeof window !== 'undefined') {
-            setMockVerificationLink(`${window.location.origin}/verify-email?token=${result.verificationTokenForMock}`);
-        }
+      if (result.messageKey === 'verification_sent') {
+        setShowVerificationMessage(true); // Show the "check your email" message
         toast({
-          title: result.messageKey === 'verification_sent' ? "Registrering Lyckades!" : "Verifieringsmail Skickat Igen!",
-          description: "Ett (simulerat) verifieringsmail har skickats. Klicka på länken i mailet för att aktivera ditt konto.",
+          title: "Registrering Lyckades!",
+          description: "Ett verifieringsmail har skickats. Klicka på länken i mailet för att aktivera ditt konto.",
+          duration: 10000, // Longer duration
         });
       }
+      // No specific message needed for 'verification_resent' here as it's handled by login/resend button
     } else {
        let description = "Kunde inte skapa konto. Försök igen.";
        if (result.messageKey === 'already_registered') {
-         description = "Ett konto med denna e-postadress finns redan. Vänligen logga in.";
+         description = "Ett konto med denna e-postadress finns redan. Vänligen logga in eller återställ lösenordet.";
        }
        toast({
           title: "Registrering Misslyckad",
@@ -72,7 +85,7 @@ export default function SignupPage() {
         });
     }
   };
-  
+
   if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-secondary/50">
@@ -98,14 +111,19 @@ export default function SignupPage() {
               <ShieldCheck className="h-5 w-5" />
               <AlertTitle>Verifiera Din E-postadress</AlertTitle>
               <AlertDescription>
-                Ett (simulerat) verifieringsmail har skickats till <strong>{email}</strong>. 
-                Klicka på länken i mailet för att aktivera ditt konto.
-                {mockVerificationLink && (
-                    <div className="mt-2">
-                        <p className="text-xs">Mock länk (för utveckling):</p>
-                        <a href={mockVerificationLink} className="text-xs text-primary hover:underline break-all">{mockVerificationLink}</a>
-                    </div>
-                )}
+                Ett verifieringsmail har skickats till <strong>{email}</strong>.
+                Klicka på länken i mailet för att aktivera ditt konto. Kolla även skräpposten.
+                 <div className='mt-3'>
+                     Har du inte fått något mail?
+                    <Button
+                        variant="link"
+                        className="p-0 h-auto ml-1 text-primary font-semibold"
+                        onClick={handleResendVerification}
+                        disabled={isSubmitting}
+                     >
+                        Skicka igen
+                     </Button>
+                 </div>
                  <p className="mt-3">Redan verifierat? <Link href="/login" className="font-semibold text-primary hover:underline">Logga in här.</Link></p>
               </AlertDescription>
             </Alert>
@@ -115,11 +133,11 @@ export default function SignupPage() {
                 <Label htmlFor="name">Fullständigt Namn</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input 
-                    id="name" 
-                    type="text" 
-                    placeholder="Ditt Namn" 
-                    required 
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Ditt Namn"
+                    required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="pl-10"
@@ -131,11 +149,11 @@ export default function SignupPage() {
                 <Label htmlFor="email">E-post</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input 
-                    id="email" 
-                    type="email" 
-                    placeholder="du@exempel.com" 
-                    required 
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="du@exempel.com"
+                    required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="pl-10"
@@ -144,18 +162,19 @@ export default function SignupPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Lösenord</Label>
+                <Label htmlFor="password">Lösenord (minst 8 tecken)</Label>
                 <div className="relative">
                   <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input 
-                    id="password" 
-                    type="password" 
-                    placeholder="••••••••" 
-                    required 
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10"
                     disabled={isSubmitting}
+                    minLength={8} // Basic client-side check
                   />
                 </div>
               </div>

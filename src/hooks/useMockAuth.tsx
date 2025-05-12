@@ -1,37 +1,39 @@
 
 "use client";
 
-import React, { 
-  createContext, 
-  useContext, 
-  useState, 
-  useEffect, 
-  useCallback, 
-  type ReactNode 
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode
 } from 'react';
 import { useRouter } from 'next/navigation';
-import { v4 as uuidv4 } from 'uuid';
+import { account, avatars } from '@/lib/appwrite'; // Use Appwrite client
+import { AppwriteException, ID } from 'appwrite';
+import { useToast } from './use-toast';
 
-interface StoredUser {
+// Define Appwrite-specific User model (subset of Appwrite's Models.User)
+interface AppwriteUser {
+  $id: string;
   email: string;
-  passwordHash: string; // In a real app, this would be a proper hash
   name: string;
-  isVerified: boolean;
-  verificationToken?: string;
-  isDeleted?: boolean;
-  createdAt: string;
-  avatarUrl?: string; // New field for avatar
+  emailVerification: boolean;
+  prefs: {
+    avatarUrl?: string; // Store avatar URL in preferences
+    // Add other preferences if needed
+  };
 }
 
 interface LoginResult {
   success: boolean;
-  errorKey?: 'account_deleted' | 'account_not_verified' | 'invalid_credentials' | 'generic_error';
+  errorKey?: 'invalid_credentials' | 'account_not_verified' | 'generic_error';
 }
 
 interface SignupResult {
   success: boolean;
-  messageKey?: 'verification_sent' | 'verification_resent' | 'already_registered' | 'generic_error';
-  verificationTokenForMock?: string; // For mock display
+  messageKey?: 'verification_sent' | 'already_registered' | 'generic_error';
 }
 
 interface VerifyEmailResult {
@@ -49,294 +51,264 @@ interface UpdateProfilePictureResult {
   errorKey?: 'generic_error';
 }
 
-
-interface MockAuthContextType {
+interface AuthContextType {
   isAuthenticated: boolean;
   currentUserEmail: string | null;
   currentUserName: string | null;
-  currentUserAvatarUrl: string | null; // New state for avatar URL
+  currentUserAvatarUrl: string | null;
+  userId: string | null; // Add user ID
   login: (email?: string, password?: string) => Promise<LoginResult>;
-  logout: () => void;
+  logout: () => Promise<void>;
   signup: (email?: string, password?: string, name?: string) => Promise<SignupResult>;
   deleteAccount: () => Promise<void>;
-  verifyEmail: (token: string) => Promise<VerifyEmailResult>;
-  changePassword: (currentPassword?: string, newPassword?: string) => Promise<ChangePasswordResult>; // New function
-  updateProfilePicture: (imageDataUri: string) => Promise<UpdateProfilePictureResult>; // New function
+  verifyEmail: (userId: string, secret: string) => Promise<VerifyEmailResult>;
+  changePassword: (currentPassword?: string, newPassword?: string) => Promise<ChangePasswordResult>;
+  updateProfilePicture: (imageDataUri: string) => Promise<UpdateProfilePictureResult>; // Will change this logic
   isLoading: boolean;
+  resendVerification: () => Promise<{ success: boolean; errorKey?: string }>;
 }
 
-const MockAuthContext = createContext<MockAuthContextType | undefined>(undefined);
-
-const USERS_DB_KEY = 'ekonova-users-db';
-const SESSION_EMAIL_KEY = 'ekonova_session_user_email';
-
-
-const getUsersFromStorage = (): StoredUser[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const storedUsers = localStorage.getItem(USERS_DB_KEY);
-    return storedUsers ? JSON.parse(storedUsers) : [];
-  } catch (error) {
-    console.error("Kunde inte hämta användare från localStorage:", error);
-    return [];
-  }
-};
-
-const saveUsersToStorage = (users: StoredUser[]) => {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(USERS_DB_KEY, JSON.stringify(users));
-  } catch (error) {
-    console.error("Kunde inte spara användare till localStorage:", error);
-  }
-};
-
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function MockAuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
-  const [currentUserName, setCurrentUserName] = useState<string | null>(null);
-  const [currentUserAvatarUrl, setCurrentUserAvatarUrl] = useState<string | null>(null); // State for avatar
+  const [user, setUser] = useState<AppwriteUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const { toast } = useToast();
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      setIsLoading(false);
-      return;
-    }
+  const fetchUser = useCallback(async () => {
     setIsLoading(true);
     try {
-      const sessionEmail = localStorage.getItem(SESSION_EMAIL_KEY);
-      if (sessionEmail) {
-        const users = getUsersFromStorage();
-        const user = users.find(u => u.email === sessionEmail && !u.isDeleted && u.isVerified);
-        if (user) {
-          setIsAuthenticated(true);
-          setCurrentUserEmail(user.email);
-          setCurrentUserName(user.name);
-          setCurrentUserAvatarUrl(user.avatarUrl || null); // Load avatar URL
-        } else {
-          // Invalid session, clear it
-          localStorage.removeItem(SESSION_EMAIL_KEY);
-          setIsAuthenticated(false);
-          setCurrentUserEmail(null);
-          setCurrentUserName(null);
-          setCurrentUserAvatarUrl(null);
-        }
-      } else {
-        setIsAuthenticated(false);
-        setCurrentUserEmail(null);
-        setCurrentUserName(null);
-        setCurrentUserAvatarUrl(null);
-      }
-    } catch (error) {
-      console.error("Fel vid initiering av autentiseringsstatus:", error);
-      setIsAuthenticated(false);
-      setCurrentUserEmail(null);
-      setCurrentUserName(null);
-      setCurrentUserAvatarUrl(null);
+      const currentUser = await account.get() as AppwriteUser;
+      setUser(currentUser);
+      // Optionally generate/fetch avatar if not in prefs
+       if (!currentUser.prefs?.avatarUrl) {
+         // If no avatar in prefs, generate one based on name (or email initial)
+         const userInitial = currentUser.name ? currentUser.name.charAt(0).toUpperCase() : (currentUser.email ? currentUser.email.charAt(0).toUpperCase() : 'A');
+         // Note: Appwrite Avatars service generates URLs, doesn't store them directly
+         const avatarUrl = avatars.getInitials(userInitial).toString();
+         // We might want to save this generated URL to prefs, but getInitials is dynamic
+         // For consistency, let's just use the dynamically generated URL for display if no pref exists
+         setUser(prev => prev ? { ...prev, prefs: { ...prev.prefs, avatarUrl: avatarUrl } } : null);
+       }
+
+    } catch (e) {
+      setUser(null); // Not logged in
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
+
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
 
   const login = useCallback(async (email?: string, password?: string): Promise<LoginResult> => {
     if (!email || !password) return { success: false, errorKey: 'invalid_credentials' };
-    if (typeof window === 'undefined') return { success: false, errorKey: 'generic_error' };
-
-    const users = getUsersFromStorage();
-    const user = users.find(u => u.email === email);
-
-    if (!user || user.passwordHash !== password) { // Plain text password check for mock
-      return { success: false, errorKey: 'invalid_credentials' };
-    }
-    if (user.isDeleted) {
-      return { success: false, errorKey: 'account_deleted' };
-    }
-    if (!user.isVerified) {
-      return { success: false, errorKey: 'account_not_verified' };
-    }
-
+    setIsLoading(true);
     try {
-      localStorage.setItem(SESSION_EMAIL_KEY, user.email);
-      setCurrentUserEmail(user.email);
-      setCurrentUserName(user.name);
-      setCurrentUserAvatarUrl(user.avatarUrl || null); // Set avatar URL on login
-      setIsAuthenticated(true);
+      await account.createEmailPasswordSession(email, password);
+      await fetchUser(); // Fetch user data after successful login
       router.push('/dashboard');
       return { success: true };
-    } catch (error) {
-      console.error("Fel vid inloggning och sparande till localStorage:", error);
-      return { success: false, errorKey: 'generic_error' };
-    }
-  }, [router]);
-
-  const logout = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.removeItem(SESSION_EMAIL_KEY);
-      } catch (error) {
-        console.error("Fel vid borttagning av session från localStorage:", error);
+    } catch (e) {
+      console.error("Appwrite login error:", e);
+      setIsLoading(false);
+      if (e instanceof AppwriteException) {
+          if (e.code === 401) { // Unauthorized
+              // Check if it's due to unverified email
+              try {
+                  // Try getting the user to check verification status - THIS MIGHT FAIL if session not created at all
+                  // A better approach might be needed depending on Appwrite's exact 401 reason separation
+                  // For now, assume 401 could mean bad credentials OR unverified
+                   return { success: false, errorKey: 'invalid_credentials' }; // Simplified
+              } catch (userError) {
+                 return { success: false, errorKey: 'invalid_credentials' };
+              }
+          }
+          if (e.code === 400 && e.message.toLowerCase().includes('verify')) {
+               return { success: false, errorKey: 'account_not_verified' };
+          }
       }
+      return { success: false, errorKey: 'invalid_credentials' }; // Default to invalid credentials
     }
-    setCurrentUserEmail(null);
-    setCurrentUserName(null);
-    setCurrentUserAvatarUrl(null); // Clear avatar URL on logout
-    setIsAuthenticated(false);
-    router.push('/login'); 
-  }, [router]);
-  
+  }, [router, fetchUser]);
+
+  const logout = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await account.deleteSession('current');
+      setUser(null);
+      router.push('/login');
+    } catch (e) {
+      console.error("Appwrite logout error:", e);
+      toast({ title: "Utloggning Misslyckades", description: "Kunde inte logga ut. Försök igen.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router, toast]);
+
   const signup = useCallback(async (email?: string, password?: string, name?: string): Promise<SignupResult> => {
     if (!email || !password || !name) return { success: false, messageKey: 'generic_error' };
-    if (typeof window === 'undefined') return { success: false, messageKey: 'generic_error' };
-
-    const users = getUsersFromStorage();
-    const existingUser = users.find(u => u.email === email);
-    const verificationToken = uuidv4();
-
-    if (existingUser) {
-      if (existingUser.isDeleted) {
-        // Allow re-signup for a deleted account, effectively overwriting it
-        const updatedUsers = users.map(u => 
-          u.email === email 
-          ? { ...u, passwordHash: password, name, isVerified: false, verificationToken, isDeleted: false, createdAt: new Date().toISOString(), avatarUrl: u.avatarUrl || `https://picsum.photos/seed/${uuidv4()}/100/100` } 
-          : u
-        );
-        saveUsersToStorage(updatedUsers);
-        return { success: true, messageKey: 'verification_sent', verificationTokenForMock: verificationToken };
-      } else if (!existingUser.isVerified) {
-        // Resend verification for an unverified account
-        const updatedUsers = users.map(u => 
-          u.email === email 
-          ? { ...u, verificationToken, name: name } // Update token and possibly name
-          : u
-        );
-        saveUsersToStorage(updatedUsers);
-        return { success: true, messageKey: 'verification_resent', verificationTokenForMock: verificationToken };
-      } else {
-        // Account already exists and is verified
+    setIsLoading(true);
+    try {
+      await account.create(ID.unique(), email, password, name);
+      // Send verification email
+      // Construct the verification URL based on your frontend routing
+       const verificationUrl = typeof window !== 'undefined' ? `${window.location.origin}/verify-email` : ''; // Adjust if needed
+       if (verificationUrl) {
+            await account.createVerification(verificationUrl);
+            setIsLoading(false);
+            return { success: true, messageKey: 'verification_sent' };
+       } else {
+            console.error("Could not determine verification URL");
+             setIsLoading(false);
+            return { success: false, messageKey: 'generic_error' };
+       }
+    } catch (e) {
+      console.error("Appwrite signup error:", e);
+      setIsLoading(false);
+      if (e instanceof AppwriteException && e.code === 409) { // User already exists
         return { success: false, messageKey: 'already_registered' };
       }
+      return { success: false, messageKey: 'generic_error' };
     }
-
-    // New user
-    const newUser: StoredUser = {
-      email,
-      passwordHash: password, // Store plain text for mock
-      name,
-      isVerified: false,
-      verificationToken,
-      createdAt: new Date().toISOString(),
-      avatarUrl: `https://picsum.photos/seed/${uuidv4()}/100/100`, // Default avatar
-    };
-    saveUsersToStorage([...users, newUser]);
-    return { success: true, messageKey: 'verification_sent', verificationTokenForMock: verificationToken };
   }, []);
 
-  const verifyEmail = useCallback(async (token: string): Promise<VerifyEmailResult> => {
-    if (typeof window === 'undefined') return { success: false, errorKey: 'generic_error' };
-
-    const users = getUsersFromStorage();
-    const userIndex = users.findIndex(u => u.verificationToken === token && !u.isDeleted);
-
-    if (userIndex === -1) {
-      return { success: false, errorKey: 'invalid_token' };
+   const verifyEmail = useCallback(async (userId: string, secret: string): Promise<VerifyEmailResult> => {
+    setIsLoading(true);
+    try {
+        await account.updateVerification(userId, secret);
+        setIsLoading(false);
+        // Optionally fetch user again or redirect, but success is enough for the page
+        return { success: true };
+    } catch (e) {
+        console.error("Appwrite verification error:", e);
+        setIsLoading(false);
+         if (e instanceof AppwriteException) {
+            if (e.message.includes('already verified')) { // Check specific error message if possible
+                return { success: true, errorKey: 'already_verified'};
+            }
+             if (e.code === 404 || e.code === 401) { // Not found or invalid
+                return { success: false, errorKey: 'invalid_token' };
+             }
+         }
+        return { success: false, errorKey: 'generic_error' };
     }
-    
-    const userToVerify = users[userIndex];
-    if (userToVerify.isVerified) {
-        return { success: true, errorKey: 'already_verified' }; 
-    }
-
-    users[userIndex] = { ...userToVerify, isVerified: true, verificationToken: undefined };
-    saveUsersToStorage(users);
-    return { success: true };
   }, []);
+
+   const resendVerification = useCallback(async (): Promise<{ success: boolean; errorKey?: string }> => {
+        setIsLoading(true);
+        const verificationUrl = typeof window !== 'undefined' ? `${window.location.origin}/verify-email` : '';
+        if (!verificationUrl) {
+            console.error("Could not determine verification URL for resend");
+            setIsLoading(false);
+            return { success: false, errorKey: 'generic_error' };
+        }
+        try {
+            await account.createVerification(verificationUrl);
+            setIsLoading(false);
+            toast({ title: "Verifieringsmail Skickat", description: "Ett nytt verifieringsmail har skickats." });
+            return { success: true };
+        } catch (e) {
+            console.error("Error resending verification:", e);
+            setIsLoading(false);
+            let errorKey = 'generic_error';
+             if (e instanceof AppwriteException && e.message.includes('already verified')) {
+                 errorKey = 'already_verified';
+                 toast({ title: "Redan Verifierad", description: "Ditt konto är redan verifierat.", variant: "default" });
+             } else {
+                toast({ title: "Fel", description: "Kunde inte skicka verifieringsmail.", variant: "destructive" });
+             }
+            return { success: false, errorKey: errorKey };
+        }
+    }, [toast]);
+
 
   const deleteAccount = useCallback(async () => {
-    const emailToDelete = currentUserEmail; 
-    if (typeof window !== 'undefined' && emailToDelete) {
-      const users = getUsersFromStorage();
-      const updatedUsers = users.map(u => 
-        u.email === emailToDelete ? { ...u, isDeleted: true, isVerified: false, verificationToken: undefined } : u
-      );
-      saveUsersToStorage(updatedUsers);
-
-      try {
-        // Clear session
-        localStorage.removeItem(SESSION_EMAIL_KEY);
-        // Clear user-specific data
-        localStorage.removeItem(`ekonova-boards-${emailToDelete}`);
-        localStorage.removeItem(`ekonova-active-board-id-${emailToDelete}`);
-        localStorage.removeItem(`ekonova-bills-${emailToDelete}`);
-      } catch (error) {
-        console.error("Kunde inte radera konto från localStorage:", error);
-      }
-    }
-    setCurrentUserEmail(null);
-    setCurrentUserName(null);
-    setCurrentUserAvatarUrl(null);
-    setIsAuthenticated(false);
-    router.push('/login'); 
-  }, [router, currentUserEmail]);
+    // Appwrite doesn't have a direct "delete user" from client-side for security.
+    // This typically requires a backend function or manual deletion.
+    // We can simulate deletion by logging out and maybe marking prefs.
+    console.warn("Kontoborttagning är inte implementerad med direkt Appwrite client SDK. Loggar ut istället.");
+    await logout();
+    // In a real app: Call a backend function -> Use Admin SDK to delete user -> Handle response
+    toast({
+      title: "Funktion Ej Tillgänglig",
+      description: "Kontoborttagning måste hanteras via serversidan. Du har loggats ut.",
+      variant: "destructive",
+      duration: 7000,
+    });
+  }, [logout, toast]);
 
   const changePassword = useCallback(async (currentPassword?: string, newPassword?: string): Promise<ChangePasswordResult> => {
     if (!currentPassword || !newPassword) return { success: false, errorKey: 'generic_error' };
-    if (typeof window === 'undefined' || !currentUserEmail) return { success: false, errorKey: 'generic_error' };
-
-    const users = getUsersFromStorage();
-    const userIndex = users.findIndex(u => u.email === currentUserEmail);
-
-    if (userIndex === -1) return { success: false, errorKey: 'generic_error' }; // Should not happen if logged in
-
-    if (users[userIndex].passwordHash !== currentPassword) { // Plain text check
-      return { success: false, errorKey: 'invalid_current_password' };
+    setIsLoading(true);
+    try {
+      await account.updatePassword(newPassword, currentPassword);
+      setIsLoading(false);
+      return { success: true };
+    } catch (e) {
+      console.error("Appwrite change password error:", e);
+      setIsLoading(false);
+       if (e instanceof AppwriteException && (e.code === 401 || e.code === 400)) { // Unauthorized or bad request (often wrong current pass)
+            return { success: false, errorKey: 'invalid_current_password' };
+       }
+      return { success: false, errorKey: 'generic_error' };
     }
-
-    users[userIndex].passwordHash = newPassword; // Update with new plain text password
-    saveUsersToStorage(users);
-    return { success: true };
-  }, [currentUserEmail]);
+  }, []);
 
   const updateProfilePicture = useCallback(async (imageDataUri: string): Promise<UpdateProfilePictureResult> => {
-    if (typeof window === 'undefined' || !currentUserEmail) return { success: false, errorKey: 'generic_error' };
+      // Appwrite doesn't directly store image data URIs in prefs easily.
+      // Preferred methods:
+      // 1. Use Appwrite Storage: Upload the image (converted from data URI to File/Blob), get the file ID, store the ID in user prefs. Fetch image via Storage API.
+      // 2. Use Avatars Service: Use built-in generators (initials, gravatar, etc.) - URLs are dynamic.
+      // 3. External Storage: Store the data URI on another service and save the URL in prefs.
 
-    const users = getUsersFromStorage();
-    const userIndex = users.findIndex(u => u.email === currentUserEmail);
-
-    if (userIndex === -1) return { success: false, errorKey: 'generic_error' };
-
-    users[userIndex].avatarUrl = imageDataUri;
-    saveUsersToStorage(users);
-    setCurrentUserAvatarUrl(imageDataUri); // Update state immediately
-    return { success: true };
-  }, [currentUserEmail]);
+      // For simplicity in this refactor, we'll *store the data URI directly in prefs*.
+      // WARNING: This is inefficient and not recommended for production due to size limits and performance.
+      if (!user) return { success: false, errorKey: 'generic_error' };
+       setIsLoading(true);
+      try {
+          const currentPrefs = user.prefs || {};
+          await account.updatePrefs({ ...currentPrefs, avatarUrl: imageDataUri });
+          // Optimistically update local state
+          setUser(prev => prev ? { ...prev, prefs: { ...prev.prefs, avatarUrl: imageDataUri } } : null);
+          setIsLoading(false);
+          return { success: true };
+      } catch (e) {
+          console.error("Appwrite update avatar pref error:", e);
+          setIsLoading(false);
+          return { success: false, errorKey: 'generic_error' };
+      }
+  }, [user]);
 
 
   return (
-    <MockAuthContext.Provider value={{ 
-      isAuthenticated, 
-      currentUserEmail, 
-      currentUserName, 
-      currentUserAvatarUrl,
-      login, 
-      logout, 
-      signup, 
-      deleteAccount, 
-      verifyEmail, 
+    <AuthContext.Provider value={{
+      isAuthenticated: !!user,
+      currentUserEmail: user?.email || null,
+      currentUserName: user?.name || null,
+      currentUserAvatarUrl: user?.prefs?.avatarUrl || null, // Get from prefs
+      userId: user?.$id || null,
+      login,
+      logout,
+      signup,
+      deleteAccount,
+      verifyEmail,
       changePassword,
       updateProfilePicture,
-      isLoading 
+      resendVerification,
+      isLoading
     }}>
       {children}
-    </MockAuthContext.Provider>
+    </AuthContext.Provider>
   );
 }
 
-export function useMockAuth() {
-  const context = useContext(MockAuthContext);
+export function useAuth() { // Renamed hook to useAuth
+  const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useMockAuth måste användas inom en MockAuthProvider');
+    throw new Error('useAuth måste användas inom en AuthProvider');
   }
   return context;
 }

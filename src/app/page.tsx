@@ -1,12 +1,13 @@
+
 "use client";
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMockAuth } from '@/hooks/useMockAuth';
+import { useAuth } from '@/hooks/useMockAuth'; // Updated to useAuth
 import { Loader2 } from 'lucide-react';
 
 export default function HomePage() {
-  const { isAuthenticated, isLoading } = useMockAuth();
+  const { isAuthenticated, isLoading } = useAuth(); // Updated to useAuth
   const router = useRouter();
 
   useEffect(() => {

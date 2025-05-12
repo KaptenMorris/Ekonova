@@ -5,30 +5,43 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useMockAuth } from "@/hooks/useMockAuth";
+import { useAuth } from "@/hooks/useMockAuth"; // Use the new Auth hook
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { LogIn, Mail, KeyRound, Loader2 } from 'lucide-react';
+import { LogIn, Mail, KeyRound, Loader2, ShieldAlert } from 'lucide-react';
 import { Logo } from '@/components/shared/Logo';
 import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+
 
 export default function LoginPage() {
-  const { login, isAuthenticated, isLoading: isLoadingAuth } = useMockAuth();
+  const { login, isAuthenticated, isLoading: isLoadingAuth, resendVerification } = useAuth(); // Use useAuth
   const router = useRouter();
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
 
   useEffect(() => {
+    // Redirect if already authenticated and auth is loaded
     if (!isLoadingAuth && isAuthenticated) {
       router.replace('/dashboard');
     }
   }, [isAuthenticated, isLoadingAuth, router]);
 
+  const handleResendVerification = async () => {
+      setIsSubmitting(true);
+      // We need the email the user tried to log in with
+      await resendVerification(); // This now uses Appwrite and shows its own toast
+      setIsSubmitting(false);
+      // Keep the prompt visible or hide it after resend? Let's keep it for now.
+  };
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    setShowVerificationPrompt(false); // Reset prompt on new submission
     if (!email || !password) {
         toast({
             title: "Inloggning Misslyckad",
@@ -43,11 +56,16 @@ export default function LoginPage() {
 
     if (!result.success) {
       let description = "Kontrollera dina uppgifter och försök igen.";
-      if (result.errorKey === 'account_deleted') {
+      // Specific error handling based on Appwrite results
+      if (result.errorKey === 'account_deleted') { // This key needs to be mapped if Appwrite provides it
         description = "Detta konto har raderats. Registrera dig på nytt för att använda tjänsten.";
       } else if (result.errorKey === 'account_not_verified') {
-        description = "Ditt konto är inte verifierat. Vänligen kontrollera din e-post för verifieringslänken.";
+        description = "Ditt konto är inte verifierat. Kontrollera din e-post för verifieringslänken eller begär en ny.";
+        setShowVerificationPrompt(true); // Show resend option
+      } else if (result.errorKey === 'invalid_credentials') {
+         description = "Felaktig e-postadress eller lösenord.";
       }
+
       toast({
         title: "Inloggning Misslyckad",
         description: description,
@@ -57,6 +75,7 @@ export default function LoginPage() {
     // Successful login and redirection is handled by the login function itself if successful
   };
 
+  // Show loading indicator while checking auth status or if already authenticated (during redirect)
   if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-secondary/50">
@@ -77,16 +96,33 @@ export default function LoginPage() {
           <CardDescription>Logga in för att hantera din ekonomi med Ekonova.</CardDescription>
         </CardHeader>
         <CardContent>
+           {showVerificationPrompt && (
+             <Alert variant="destructive" className="mb-6">
+               <ShieldAlert className="h-5 w-5" />
+               <AlertTitle>Konto Ej Verifierat</AlertTitle>
+               <AlertDescription>
+                 Kontrollera din e-post för verifieringslänken. Har du inte fått någon?
+                 <Button
+                    variant="link"
+                    className="p-0 h-auto ml-1 text-destructive font-semibold"
+                    onClick={handleResendVerification}
+                    disabled={isSubmitting}
+                 >
+                    Skicka igen
+                 </Button>
+               </AlertDescription>
+             </Alert>
+           )}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="email">E-post</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                <Input 
-                  id="email" 
-                  type="email" 
-                  placeholder="du@exempel.com" 
-                  required 
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="du@exempel.com"
+                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
@@ -98,11 +134,11 @@ export default function LoginPage() {
               <Label htmlFor="password">Lösenord</Label>
                <div className="relative">
                 <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                <Input 
-                  id="password" 
-                  type="password" 
-                  placeholder="••••••••" 
-                  required 
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10"
