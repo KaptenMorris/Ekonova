@@ -1,3 +1,4 @@
+
 import { Client, Account, Databases, Avatars } from 'appwrite';
 
 // --- IMPORTANT: Appwrite Configuration & CORS ---
@@ -22,52 +23,66 @@ const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
 export const databaseId = process.env.NEXT_PUBLIC_APPWRITE_DATABASE_ID!;
 export const boardsCollectionId = process.env.NEXT_PUBLIC_APPWRITE_BOARDS_COLLECTION_ID!;
 export const billsCollectionId = process.env.NEXT_PUBLIC_APPWRITE_BILLS_COLLECTION_ID!;
+// API Key should NOT be prefixed with NEXT_PUBLIC_ and should only be used server-side if needed.
+// For client-side operations (auth, database CRUD for user's own data), API key is usually not required.
+// const apiKey = process.env.APPWRITE_API_KEY_SECRET; // Example if used server-side
 
 // Improved check: ensure variables are defined, not empty strings, and not placeholders
 const isPlaceholder = (value: string | undefined, placeholderPrefix: string) => {
-  return !value || value.trim() === '' || value.includes(placeholderPrefix);
+  // Check if value is undefined, null, empty, or contains a known placeholder pattern.
+  // Common placeholder patterns start with "YOUR_" or are "<...>"
+  return !value || value.trim() === '' || value.startsWith(placeholderPrefix) || /<[^>]+>/.test(value);
 }
 
-const configOk = !isPlaceholder(endpoint, 'YOUR_APPWRITE_ENDPOINT') &&
-                 !isPlaceholder(projectId, 'YOUR_PROJECT_ID') &&
-                 !isPlaceholder(databaseId, 'YOUR_DATABASE_ID') &&
-                 !isPlaceholder(boardsCollectionId, 'YOUR_BOARDS_COLLECTION_ID') &&
-                 !isPlaceholder(billsCollectionId, 'YOUR_BILLS_COLLECTION_ID');
+// More robust check for placeholder values, specific to typical Appwrite placeholder formats
+const checkAppwriteVar = (value: string | undefined, varName: string) => {
+    if (!value || value.trim() === '' || value.includes(`YOUR_${varName.toUpperCase()}`) || value.includes(`<YOUR_`) || value.includes(`[YOUR_`)) {
+        return false;
+    }
+    // Check for common Appwrite ID patterns if it's an ID field
+    if (varName.includes('ID') && value.length < 5) { // Appwrite IDs are usually longer
+        // This is a heuristic, might need adjustment
+        // console.warn(`Appwrite variable ${varName} ('${value}') seems too short for a typical ID.`);
+        // return false; // Decided against making this a hard fail, but it's a flag.
+    }
+    return true;
+};
+
+
+const configOk =
+    checkAppwriteVar(endpoint, 'APPWRITE_ENDPOINT') &&
+    checkAppwriteVar(projectId, 'APPWRITE_PROJECT_ID') &&
+    checkAppwriteVar(databaseId, 'APPWRITE_DATABASE_ID') &&
+    checkAppwriteVar(boardsCollectionId, 'APPWRITE_BOARDS_COLLECTION_ID') &&
+    checkAppwriteVar(billsCollectionId, 'APPWRITE_BILLS_COLLECTION_ID');
 
 
 const client = new Client();
 
-// Configure client only if configuration seems okay
 if (configOk) {
     try {
         client
-          .setEndpoint(endpoint!) // Use non-null assertion as configOk implies they exist
+          .setEndpoint(endpoint!) 
           .setProject(projectId!);
-        console.log("Appwrite client configured successfully."); // Log success
+        console.log(`Appwrite client configured successfully for project: '${projectId}' at endpoint: '${endpoint}'`);
     } catch (error) {
-         console.error("CRITICAL: Error configuring Appwrite client during initialization:", error);
-         // Potentially re-set configOk to false or handle differently
-         // configOk = false; // Consider setting to false if init fails
+         console.error("CRITICAL: Error configuring Appwrite client during initialization (post-configOk check):", error);
     }
 } else {
-    // Log a more specific configuration issue notice if configuration failed
     console.error(
         "CRITICAL: Appwrite client configuration failed. " +
-        "One or more NEXT_PUBLIC_ environment variables in .env.local are missing, empty, or still contain placeholder values (like 'YOUR_...').\n" +
-        ` - Endpoint: ${endpoint ? 'OK' : 'MISSING/EMPTY'}\n` +
-        ` - Project ID: ${projectId ? 'OK' : 'MISSING/EMPTY'}\n` +
-        ` - Database ID: ${databaseId ? 'OK' : 'MISSING/EMPTY'}\n` +
-        ` - Boards Collection ID: ${boardsCollectionId ? 'OK' : 'MISSING/EMPTY'}\n` +
-        ` - Bills Collection ID: ${billsCollectionId ? 'OK' : 'MISSING/EMPTY'}\n` +
-        "Please correct the .env.local file and RESTART the Next.js server."
+        "One or more NEXT_PUBLIC_ environment variables in .env.local are missing, empty, or still contain placeholder values.\n" +
+        ` - NEXT_PUBLIC_APPWRITE_ENDPOINT: '${endpoint || "MISSING/EMPTY"}' (Status: ${checkAppwriteVar(endpoint, 'APPWRITE_ENDPOINT') ? 'OK-ish Syntax' : 'FAIL - Placeholder/Missing'})\n` +
+        ` - NEXT_PUBLIC_APPWRITE_PROJECT_ID: '${projectId || "MISSING/EMPTY"}' (Status: ${checkAppwriteVar(projectId, 'APPWRITE_PROJECT_ID') ? 'OK-ish Syntax' : 'FAIL - Placeholder/Missing'})\n` +
+        ` - NEXT_PUBLIC_APPWRITE_DATABASE_ID: '${databaseId || "MISSING/EMPTY"}' (Status: ${checkAppwriteVar(databaseId, 'APPWRITE_DATABASE_ID') ? 'OK-ish Syntax' : 'FAIL - Placeholder/Missing'})\n` +
+        ` - NEXT_PUBLIC_APPWRITE_BOARDS_COLLECTION_ID: '${boardsCollectionId || "MISSING/EMPTY"}' (Status: ${checkAppwriteVar(boardsCollectionId, 'APPWRITE_BOARDS_COLLECTION_ID') ? 'OK-ish Syntax' : 'FAIL - Placeholder/Missing'})\n` +
+        ` - NEXT_PUBLIC_APPWRITE_BILLS_COLLECTION_ID: '${billsCollectionId || "MISSING/EMPTY"}' (Status: ${checkAppwriteVar(billsCollectionId, 'APPWRITE_BILLS_COLLECTION_ID') ? 'OK-ish Syntax' : 'FAIL - Placeholder/Missing'})\n` +
+        "ACTION REQUIRED: Please correct the .env.local file and RESTART the Next.js server. Then, ensure Appwrite project's Platform hostnames (CORS) are correctly set."
     );
-    // Optional: Throw an error to halt execution if config is absolutely required
-    // throw new Error("Appwrite client not configured. Check environment variables.");
 }
 
 const account = new Account(client);
 const databases = new Databases(client);
 const avatars = new Avatars(client);
 
-// Export configOk if it needs to be checked elsewhere (e.g., conditionally render UI)
 export { client, account, databases, avatars, configOk };

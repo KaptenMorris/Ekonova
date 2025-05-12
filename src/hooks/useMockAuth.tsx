@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, {
@@ -76,19 +77,16 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   const fetchUser = useCallback(async () => {
-    // Check config BEFORE attempting Appwrite calls
     if (!configOk) {
+        console.warn("fetchUser skipped: Appwrite configuration is invalid. Check .env.local and restart server, then verify Appwrite Console platform hostnames.");
         setIsLoading(false);
         setUser(null);
-        // This console.error is crucial and already exists in src/lib/appwrite.ts
-        // console.error("fetchUser skipped: Appwrite configuration is invalid. Check .env.local and restart server.");
         return;
     }
     setIsLoading(true);
     try {
       const currentUser = await account.get() as AppwriteUser;
       setUser(currentUser);
-      // Optionally generate/fetch avatar if not in prefs
        if (!currentUser.prefs?.avatarUrl) {
          const userInitial = currentUser.name ? currentUser.name.charAt(0).toUpperCase() : (currentUser.email ? currentUser.email.charAt(0).toUpperCase() : 'A');
          const avatarUrl = avatars.getInitials(userInitial).toString();
@@ -96,19 +94,16 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
        }
 
     } catch (e) {
-      // Detailed logging for fetch failure
       if (e instanceof AppwriteException) {
-          // Code 0 often indicates a network error or CORS issue before a proper HTTP code is received
           if (e.code === 0 || (e.message && e.message.toLowerCase().includes('failed to fetch'))) {
              console.error(`Appwrite fetchUser network/CORS error: ${e.message}. Check Appwrite platform settings (CORS), network connection, and browser's network tab for more details.`);
-             // Don't toast here to avoid noise on initial load when logged out
           } else {
              console.error(`Appwrite fetchUser error (Code: ${e.code}): ${e.message}. Type: ${e.type}`);
           }
       } else {
           console.error("Generic fetchUser error:", e);
       }
-      setUser(null); // Not logged in or failed to fetch
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -122,7 +117,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     if (!configOk) {
         toast({
             title: "Konfigurationsfel",
-            description: "Appen kan inte ansluta till servern. Kontrollera .env.local och starta om.",
+            description: "Appen kan inte ansluta till servern. Kontrollera .env.local och starta om, samt Appwrites plattformsinställningar (CORS).",
             variant: "destructive",
             duration: 7000,
         });
@@ -132,7 +127,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       await account.createEmailPasswordSession(email, password);
-      await fetchUser(); // Fetch user data after successful login
+      await fetchUser(); 
       router.push('/dashboard');
       return { success: true };
     } catch (e) {
@@ -154,7 +149,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
                return { success: false, errorKey: 'account_not_verified' };
           }
            if (e.code === 0 || e.message.toLowerCase().includes('failed to fetch')) {
-               toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och att Appwrite-plattformen är korrekt konfigurerad.", variant: "destructive", duration: 7000 });
+               toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och att Appwrite-plattformen är korrekt konfigurerad (CORS).", variant: "destructive", duration: 7000 });
                return { success: false, errorKey: 'generic_error' };
            }
       }
@@ -188,7 +183,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     if (!configOk) {
          toast({
             title: "Konfigurationsfel",
-            description: "Appen kan inte ansluta till servern. Kontrollera .env.local och starta om.",
+            description: "Appen kan inte ansluta till servern. Kontrollera .env.local och starta om, samt Appwrites plattformsinställningar (CORS).",
             variant: "destructive",
             duration: 7000,
         });
@@ -216,21 +211,21 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         return { success: false, messageKey: 'already_registered' };
       }
       if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
-           toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och att Appwrite-plattformen är korrekt konfigurerad.", variant: "destructive", duration: 7000 });
+           toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och att Appwrite-plattformen är korrekt konfigurerad (CORS).", variant: "destructive", duration: 7000 });
            return { success: false, messageKey: 'generic_error' };
       }
       return { success: false, messageKey: 'generic_error' };
     }
   }, [toast]);
 
-   const verifyEmail = useCallback(async (userId: string, secret: string): Promise<VerifyEmailResult> => {
+   const verifyEmail = useCallback(async (userIdParam: string, secret: string): Promise<VerifyEmailResult> => {
     if (!configOk) {
          toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
         return { success: false, errorKey: 'config_error' };
     }
     setIsLoading(true);
     try {
-        await account.updateVerification(userId, secret);
+        await account.updateVerification(userIdParam, secret);
         setIsLoading(false);
         return { success: true };
     } catch (e) {
@@ -299,17 +294,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     }
     setIsLoading(true);
     try {
-        // Appwrite rekommenderar server-side för kontoborttagning.
-        // Om du måste göra det client-side (inte rekommenderat för prod):
-        // await account.delete(); // Detta raderar den aktuella sessionen och användarkontot.
-        // För nu, loggar vi bara ut och meddelar användaren:
-        await account.deleteSession('current'); // Detta är säkrare för client-side
+        await account.deleteSession('current'); 
         setUser(null);
         router.push('/login');
         toast({
             title: "Konto 'Raderat' (Utloggad)",
-            description: "För att fullständigt radera kontot krävs en server-side åtgärd. Du har loggats ut.",
-            variant: "default", // Ändrad från destructive för att reflektera att det inte är full radering
+            description: "För att fullständigt radera kontot krävs en server-side åtgärd med API-nyckel. Du har loggats ut och dina data kommer att tas bort manuellt/via serverprocess vid behov.",
+            variant: "default", 
             duration: 10000,
         });
 
@@ -323,7 +314,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     } finally {
         setIsLoading(false);
     }
-  }, [user, logout, router, toast]);
+  }, [user, router, toast]);
 
   const changePassword = useCallback(async (currentPassword?: string, newPassword?: string): Promise<ChangePasswordResult> => {
     if (!configOk) {
