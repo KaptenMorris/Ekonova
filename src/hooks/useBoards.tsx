@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid'; // Keep for client-side generation if neede
 import { ID, Databases, Query, AppwriteException } from 'appwrite';
 import { databases, databaseId, boardsCollectionId } from '@/lib/appwrite';
 import { INITIAL_BOARD_CATEGORY_TEMPLATES, DEFAULT_BOARD_NAME } from '@/config/constants';
-import { useAuth } from './useAuth'; // Use the new Appwrite-based auth hook
+import { useAuth } from '@/hooks/useMockAuth'; // Use the new Appwrite-based auth hook
 import { useToast } from './use-toast';
 
 // Appwrite typically returns documents with system attributes ($id, $createdAt, etc.)
@@ -65,6 +65,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
             transactions: transactions,
             createdAt: doc.$createdAt,
             sharedWith: sharedWith,
+            userId: doc.userId,
             // Include other fields if necessary
         };
       } catch (e) {
@@ -78,6 +79,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
             transactions: [],
             createdAt: doc.$createdAt,
             sharedWith: [],
+            userId: doc.userId,
           };
       }
 
@@ -167,7 +169,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
         toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad för att skapa en tavla.", variant: "destructive" });
         return null;
     }
-    setIsLoading(true);
+    setInternalIsLoadingBoards(true);
     const newCategories = INITIAL_BOARD_CATEGORY_TEMPLATES.map(template => ({
       ...template,
       id: uuidv4(), // Client-side ID generation for nested items
@@ -193,13 +195,13 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       const newBoard = mapDocumentToBoard(document as unknown as AppwriteBoardDocument);
       setBoards(prevBoards => [...prevBoards, newBoard]);
       setActiveBoardId(newBoard.id); // Make the new board active
-      setIsLoading(false);
+      setInternalIsLoadingBoards(false);
       toast({ title: "Tavla Skapad", description: `Tavlan "${name}" har skapats.` });
       return newBoard;
     } catch (e) {
       console.error("Appwrite: Failed to add board:", e);
       toast({ title: "Fel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
-      setIsLoading(false);
+      setInternalIsLoadingBoards(false);
       return null;
     }
   }, [isAuthenticated, userId, toast, setActiveBoardId]);
@@ -207,7 +209,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
   const renameBoard = useCallback(async (boardId: string, newName: string) => {
     if (!isAuthenticated || !userId) return;
-    setIsLoading(true);
+    setInternalIsLoadingBoards(true);
      const originalBoards = [...boards]; // Backup for optimistic revert
      // Optimistic UI Update
      setBoards(prevBoards =>
@@ -229,13 +231,13 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       toast({ title: "Fel", description: "Kunde inte döpa om tavlan.", variant: "destructive" });
       setBoards(originalBoards); // Revert optimistic update on error
     } finally {
-        setIsLoading(false);
+        setInternalIsLoadingBoards(false);
     }
   }, [isAuthenticated, userId, boards, toast]);
 
   const deleteBoard = useCallback(async (boardId: string) => {
     if (!isAuthenticated || !userId) return;
-    setIsLoading(true);
+    setInternalIsLoadingBoards(true);
     const boardToDelete = boards.find(b => b.id === boardId);
     const originalBoards = [...boards]; // Backup for optimistic revert
 
@@ -277,7 +279,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
        }
 
     } finally {
-        setIsLoading(false);
+        setInternalIsLoadingBoards(false);
     }
   }, [isAuthenticated, userId, boards, activeBoardId, setActiveBoardId, toast, addBoard]); // Add addBoard dependency
 
@@ -320,7 +322,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
 
     try {
-        setIsLoading(true); // Indicate loading during Appwrite call
+        setInternalIsLoadingBoards(true); // Indicate loading during Appwrite call
         const updatedDoc = await databases.updateDocument(
             databaseId,
             boardsCollectionId,
@@ -330,14 +332,14 @@ export function BoardProvider({ children }: { children: ReactNode }) {
          // Update local state with the confirmed data from Appwrite
          const confirmedBoard = mapDocumentToBoard(updatedDoc as unknown as AppwriteBoardDocument);
          setBoards(prevBoards => prevBoards.map(b => b.id === confirmedBoard.id ? confirmedBoard : b));
-         setIsLoading(false);
+         setInternalIsLoadingBoards(false);
          return confirmedBoard;
 
     } catch (e) {
       console.error("Appwrite: Failed to update active board:", e);
       toast({ title: "Fel", description: "Kunde inte uppdatera tavlan.", variant: "destructive" });
       setBoards(originalBoards); // Revert optimistic update
-      setIsLoading(false);
+      setInternalIsLoadingBoards(false);
       return null;
     }
    }, [isAuthenticated, userId, activeBoardId, boards, toast]);
@@ -496,3 +498,5 @@ export function useBoards() {
   }
   return context;
 }
+
+    
