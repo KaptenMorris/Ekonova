@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, {
@@ -77,11 +76,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   const fetchUser = useCallback(async () => {
+    // Check config BEFORE attempting Appwrite calls
     if (!configOk) {
         setIsLoading(false);
         setUser(null);
-        console.error("Skipping fetchUser due to Appwrite configuration errors.");
-        return; // Don't attempt if config is bad
+        console.error("fetchUser skipped: Appwrite configuration is invalid. Check .env.local and restart server.");
+        // Optionally toast here, but might be too noisy on every load
+        return;
     }
     setIsLoading(true);
     try {
@@ -101,8 +102,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       // Detailed logging for fetch failure
       if (e instanceof AppwriteException) {
-          console.error(`Appwrite fetchUser error (Code: ${e.code}): ${e.message}. Type: ${e.type}`);
-          // Common codes: 401 (not authenticated), 403 (forbidden), network errors might lack code but have message
+          // Code 0 often indicates a network error or CORS issue before a proper HTTP code is received
+          if (e.code === 0 || (e.message && e.message.toLowerCase().includes('failed to fetch'))) {
+             console.error(`Appwrite fetchUser network/CORS error: ${e.message}. Check Appwrite platform settings and network connection.`);
+             // Don't toast here to avoid noise on initial load when logged out
+          } else {
+             console.error(`Appwrite fetchUser error (Code: ${e.code}): ${e.message}. Type: ${e.type}`);
+          }
       } else {
           console.error("Generic fetchUser error:", e);
       }
@@ -117,7 +123,15 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUser]);
 
   const login = useCallback(async (email?: string, password?: string): Promise<LoginResult> => {
-    if (!configOk) return { success: false, errorKey: 'config_error' };
+    if (!configOk) {
+        toast({
+            title: "Konfigurationsfel",
+            description: "Appen kan inte ansluta till servern. Kontrollera .env.local och starta om.",
+            variant: "destructive",
+            duration: 7000,
+        });
+        return { success: false, errorKey: 'config_error' };
+    }
     if (!email || !password) return { success: false, errorKey: 'invalid_credentials' };
     setIsLoading(true);
     try {
@@ -134,6 +148,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
               // Appwrite might return 401 for both bad creds and unverified email in some flows.
               // Let's check the user status IF a session was partially created (might not be the case)
               try {
+                  // Try getting account status again, it might reveal verification needed
                   const tempUser = await account.get();
                   if (!tempUser.emailVerification) {
                       return { success: false, errorKey: 'account_not_verified' };
@@ -150,8 +165,8 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
                return { success: false, errorKey: 'account_not_verified' };
           }
           // Handle other potential Appwrite errors (e.g., network, server unavailable)
-           if (e.message.includes('Failed to fetch')) {
-               toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och försök igen.", variant: "destructive" });
+           if (e.code === 0 || e.message.toLowerCase().includes('failed to fetch')) {
+               toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och att Appwrite-plattformen är korrekt konfigurerad.", variant: "destructive", duration: 7000 });
                return { success: false, errorKey: 'generic_error' };
            }
       }
@@ -160,7 +175,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [router, fetchUser, toast]);
 
   const logout = useCallback(async () => {
-    if (!configOk) return; // Don't attempt if config is bad
+    if (!configOk) {
+        toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
+        return;
+    }
     setIsLoading(true);
     try {
       await account.deleteSession('current');
@@ -168,14 +186,26 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       router.push('/login');
     } catch (e) {
       console.error("Appwrite logout error:", e);
-      toast({ title: "Utloggning Misslyckades", description: "Kunde inte logga ut. Försök igen.", variant: "destructive" });
+       if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
+           toast({ title: "Nätverksfel vid utloggning", description: "Försök igen.", variant: "destructive" });
+       } else {
+           toast({ title: "Utloggning Misslyckades", description: "Kunde inte logga ut. Försök igen.", variant: "destructive" });
+       }
     } finally {
       setIsLoading(false);
     }
   }, [router, toast]);
 
   const signup = useCallback(async (email?: string, password?: string, name?: string): Promise<SignupResult> => {
-    if (!configOk) return { success: false, messageKey: 'config_error' };
+    if (!configOk) {
+         toast({
+            title: "Konfigurationsfel",
+            description: "Appen kan inte ansluta till servern. Kontrollera .env.local och starta om.",
+            variant: "destructive",
+            duration: 7000,
+        });
+        return { success: false, messageKey: 'config_error' };
+    }
     if (!email || !password || !name) return { success: false, messageKey: 'generic_error' };
     setIsLoading(true);
     try {
@@ -190,6 +220,8 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
        } else {
             console.error("Could not determine verification URL");
              setIsLoading(false);
+             // Provide feedback even if URL determination fails
+             toast({ title: "Fel", description: "Kunde inte skapa verifieringslänk.", variant: "destructive"});
             return { success: false, messageKey: 'generic_error' };
        }
     } catch (e) {
@@ -198,8 +230,8 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       if (e instanceof AppwriteException && e.code === 409) { // User already exists
         return { success: false, messageKey: 'already_registered' };
       }
-      if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-           toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och försök igen.", variant: "destructive" });
+      if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
+           toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning och att Appwrite-plattformen är korrekt konfigurerad.", variant: "destructive", duration: 7000 });
            return { success: false, messageKey: 'generic_error' };
       }
       return { success: false, messageKey: 'generic_error' };
@@ -207,7 +239,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
    const verifyEmail = useCallback(async (userId: string, secret: string): Promise<VerifyEmailResult> => {
-    if (!configOk) return { success: false, errorKey: 'config_error' };
+    if (!configOk) {
+         toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
+        return { success: false, errorKey: 'config_error' };
+    }
     setIsLoading(true);
     try {
         await account.updateVerification(userId, secret);
@@ -218,13 +253,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         console.error("Appwrite verification error:", e);
         setIsLoading(false);
          if (e instanceof AppwriteException) {
-            if (e.message.includes('already verified')) { // Check specific error message if possible
+            if (e.message.toLowerCase().includes('already verified')) { // Check specific error message if possible
                 return { success: true, errorKey: 'already_verified'};
             }
              if (e.code === 404 || e.code === 401) { // Not found or invalid
                 return { success: false, errorKey: 'invalid_token' };
              }
-             if (e.message.includes('Failed to fetch')) {
+              if (e.code === 0 || e.message.toLowerCase().includes('failed to fetch')) {
                  toast({ title: "Nätverksfel", description: "Kunde inte ansluta till servern. Kontrollera din internetanslutning.", variant: "destructive" });
                  return { success: false, errorKey: 'generic_error' };
              }
@@ -234,12 +269,16 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
    const resendVerification = useCallback(async (): Promise<{ success: boolean; errorKey?: string }> => {
-       if (!configOk) return { success: false, errorKey: 'config_error' };
+       if (!configOk) {
+            toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
+            return { success: false, errorKey: 'config_error' };
+       }
         setIsLoading(true);
         const verificationUrl = typeof window !== 'undefined' ? `${window.location.origin}/verify-email` : '';
         if (!verificationUrl) {
             console.error("Could not determine verification URL for resend");
             setIsLoading(false);
+             toast({ title: "Fel", description: "Kunde inte skapa verifieringslänk.", variant: "destructive"});
             return { success: false, errorKey: 'generic_error' };
         }
         try {
@@ -251,10 +290,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
             console.error("Error resending verification:", e);
             setIsLoading(false);
             let errorKey = 'generic_error';
-             if (e instanceof AppwriteException && e.message.includes('already verified')) {
+             if (e instanceof AppwriteException && e.message.toLowerCase().includes('already verified')) {
                  errorKey = 'already_verified';
                  toast({ title: "Redan Verifierad", description: "Ditt konto är redan verifierat.", variant: "default" });
-             } else if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+             } else if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
                   toast({ title: "Nätverksfel", description: "Kunde inte skicka verifieringsmail.", variant: "destructive" });
              }
              else {
@@ -281,7 +320,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [logout, toast]);
 
   const changePassword = useCallback(async (currentPassword?: string, newPassword?: string): Promise<ChangePasswordResult> => {
-    if (!configOk) return { success: false, errorKey: 'config_error' };
+    if (!configOk) {
+        toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
+        return { success: false, errorKey: 'config_error' };
+    }
     if (!currentPassword || !newPassword) return { success: false, errorKey: 'generic_error' };
     setIsLoading(true);
     try {
@@ -294,7 +336,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
        if (e instanceof AppwriteException && (e.code === 401 || e.code === 400)) { // Unauthorized or bad request (often wrong current pass)
             return { success: false, errorKey: 'invalid_current_password' };
        }
-        if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+        if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
            toast({ title: "Nätverksfel", description: "Kunde inte ändra lösenord. Kontrollera din anslutning.", variant: "destructive" });
            return { success: false, errorKey: 'generic_error' };
         }
@@ -311,7 +353,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
       // For simplicity in this refactor, we'll *store the data URI directly in prefs*.
       // WARNING: This is inefficient and not recommended for production due to size limits and performance.
-       if (!configOk) return { success: false, errorKey: 'config_error' };
+       if (!configOk) {
+           toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
+           return { success: false, errorKey: 'config_error' };
+       }
       if (!user) return { success: false, errorKey: 'generic_error' };
        setIsLoading(true);
       try {
@@ -324,7 +369,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       } catch (e) {
           console.error("Appwrite update avatar pref error:", e);
           setIsLoading(false);
-          if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
+          if (e instanceof AppwriteException && (e.code === 0 || e.message.toLowerCase().includes('failed to fetch'))) {
              toast({ title: "Nätverksfel", description: "Kunde inte uppdatera profilbild. Kontrollera din anslutning.", variant: "destructive" });
              return { success: false, errorKey: 'generic_error' };
           }
