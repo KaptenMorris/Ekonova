@@ -3,8 +3,8 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { applyActionCode, getAuth } from "firebase/auth"; // Import applyActionCode
-import { auth } from "@/lib/firebase"; // Import your Firebase auth instance
+import { applyActionCode } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
-  const [status, setStatus] = useState<"loading" | "success" | "error" | "already_verified">("loading");
+  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ function VerifyEmailContent() {
     const verify = async () => {
       setStatus("loading");
       try {
-        await applyActionCode(auth, oobCode); // Use Firebase's applyActionCode
+        await applyActionCode(auth, oobCode);
         setStatus("success");
         toast({
             title: "E-post Verifierad!",
@@ -49,6 +49,8 @@ function VerifyEmailContent() {
           setErrorMessage("Ditt konto har inaktiverats.");
         } else if (e.code === 'auth/user-not-found') {
            setErrorMessage("Användaren kopplad till denna länk hittades inte.");
+        } else if (e.code === 'auth/expired-action-code') {
+           setErrorMessage("Verifieringslänken har gått ut. Begär en ny.");
         }
         else {
           setErrorMessage("Ett fel uppstod vid verifieringen. Försök igen eller kontakta support.");
@@ -84,22 +86,6 @@ function VerifyEmailContent() {
             </CardDescription>
             <p className="text-sm text-muted-foreground">
               Du omdirigeras strax till inloggningssidan.
-            </p>
-            <Button asChild className="w-full mt-6">
-              <Link href="/login">Gå till Inloggning</Link>
-            </Button>
-          </div>
-        )}
-         {/* "already_verified" is less common with Firebase direct link verification,
-             as a used link typically becomes invalid. But keeping for robustness. */}
-         {status === "already_verified" && (
-          <div className="space-y-4">
-            <CheckCircle className="h-16 w-16 text-primary mx-auto" />
-            <CardDescription className="text-lg">
-              Din e-postadress är redan verifierad.
-            </CardDescription>
-            <p className="text-sm text-muted-foreground">
-              Du kan logga in på ditt konto.
             </p>
             <Button asChild className="w-full mt-6">
               <Link href="/login">Gå till Inloggning</Link>

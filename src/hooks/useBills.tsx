@@ -14,15 +14,16 @@ import {
   query,
   where,
   Timestamp,
+  serverTimestamp,
 } from 'firebase/firestore';
-import { db } from '@/lib/firebase'; // Import Firestore instance
-import { useAuth } from '@/hooks/useMockAuth';
+import { db } from '@/lib/firebase';
+import { useAuth } from '@/hooks/useMockAuth'; // This will now use Firebase Auth
 import { useToast } from './use-toast';
 
 interface BillsContextType {
   bills: Bill[];
   isLoadingBills: boolean;
-  addBill: (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>) => Promise<Bill | null>;
+  addBill: (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate' | 'userId'>) => Promise<Bill | null>;
   toggleBillPaidStatus: (billId: string) => Promise<Bill | null>;
   deleteBill: (billId: string) => Promise<void>;
   updateBill: (updatedBillData: Bill) => Promise<Bill | null>;
@@ -43,16 +44,16 @@ export function BillProvider({ children }: { children: ReactNode }) {
     amount: docData.amount,
     dueDate: docData.dueDate instanceof Timestamp ? docData.dueDate.toDate().toISOString() : docData.dueDate,
     isPaid: docData.isPaid,
-    paidDate: docData.paidDate instanceof Timestamp ? docData.paidDate.toDate().toISOString() : docData.paidDate,
-    notes: docData.notes,
+    paidDate: docData.paidDate instanceof Timestamp ? docData.paidDate.toDate().toISOString() : (docData.paidDate || null),
+    notes: docData.notes || "",
     categoryId: docData.categoryId,
   });
 
-  const fetchBills = useCallback(async () => {
-    if (!isAuthenticated || !userId) {
+  useEffect(() => {
+    if (!isAuthenticated || !userId || isLoadingAuth) {
       setBills([]);
-      setInternalIsLoadingBills(false);
-      return () => {}; // Return an empty unsubscribe function
+      setInternalIsLoadingBills(!isLoadingAuth);
+      return;
     }
     setInternalIsLoadingBills(true);
     const billsCollectionRef = collection(db, 'bills');
@@ -70,18 +71,10 @@ export function BillProvider({ children }: { children: ReactNode }) {
       toast({ title: "Fel", description: "Kunde inte ladda dina räkningar.", variant: "destructive" });
       setInternalIsLoadingBills(false);
     });
-    return unsubscribe;
-  }, [isAuthenticated, userId, toast]);
-
-  useEffect(() => {
-    let unsubscribe = () => {};
-    if (!isLoadingAuth) {
-      fetchBills().then(unsub => unsubscribe = unsub);
-    }
     return () => unsubscribe();
-  }, [isLoadingAuth, fetchBills]);
+  }, [isAuthenticated, userId, isLoadingAuth, toast]);
 
-  const addBill = useCallback(async (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>): Promise<Bill | null> => {
+  const addBill = useCallback(async (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate' | 'userId'>): Promise<Bill | null> => {
     if (!isAuthenticated || !userId) {
       toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad.", variant: "destructive" });
       return null;
@@ -95,27 +88,21 @@ export function BillProvider({ children }: { children: ReactNode }) {
       ...billData,
       userId: userId,
       isPaid: false,
-      paidDate: null, // Use null for Firestore compatibility
-      // Convert dueDate to Timestamp if it's a string
-      dueDate: typeof billData.dueDate === 'string' ? Timestamp.fromDate(new Date(billData.dueDate)) : billData.dueDate,
+      paidDate: null,
+      dueDate: Timestamp.fromDate(new Date(billData.dueDate)),
+      createdAt: serverTimestamp(), // Optional: for tracking creation
     };
 
     try {
-      // Explicitly cast to remove 'id' if it sneaks in, as addDoc generates it
-      const { id, ...dataToSave } = newBillDataForFirestore as any;
-
-      const docRef = await addDoc(collection(db, 'bills'), dataToSave);
-      // Construct the bill object for local state using the server-generated ID
-      const newBill: Bill = {
-        ...billData, // Original data
-        id: docRef.id, // Firebase generated ID
+      const docRef = await addDoc(collection(db, 'bills'), newBillDataForFirestore);
+      // Return the conceptual new bill; actual data comes from onSnapshot
+      return {
+        ...billData,
+        id: docRef.id,
         userId: userId,
         isPaid: false,
         paidDate: null,
       };
-      // onSnapshot should update, but for immediate feedback:
-      setBills(prev => [...prev, newBill]);
-      return newBill;
     } catch (e) {
       console.error("Firebase: Failed to add bill:", e);
       toast({ title: "Fel", description: "Kunde inte lägga till räkningen.", variant: "destructive" });
@@ -138,7 +125,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
     const billDocRef = doc(db, 'bills', billId);
     try {
       await updateDoc(billDocRef, updatedData);
-      // onSnapshot updates state, but return the conceptually updated bill
+      // Return conceptual updated bill
       return { ...billToToggle, ...updatedData, paidDate: updatedData.paidDate ? updatedData.paidDate.toDate().toISOString() : null };
     } catch (e) {
       console.error("Firebase: Failed to toggle bill status:", e);
@@ -153,7 +140,6 @@ export function BillProvider({ children }: { children: ReactNode }) {
     try {
       await deleteDoc(billDocRef);
       // Toast handled by caller
-      // onSnapshot updates state
     } catch (e) {
       console.error("Firebase: Failed to delete bill:", e);
       toast({ title: "Fel", description: "Kunde inte radera räkningen.", variant: "destructive" });
@@ -162,20 +148,20 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
   const updateBill = useCallback(async (updatedBillData: Bill): Promise<Bill | null> => {
     if (!isAuthenticated || !userId) return null;
-    const { id, userId: billUserId, ...dataToUpdate } = updatedBillData;
+    const { id, userId: billUserId, ...dataToUpdate } = updatedBillData; // Exclude userId from update payload
     const billDocRef = doc(db, 'bills', id);
 
-    // Convert dates to Timestamps for Firestore
-    const firestoreReadyData = {
+    const firestoreReadyData: Partial<Bill> & { dueDate: Timestamp, paidDate: Timestamp | null } = {
         ...dataToUpdate,
-        dueDate: typeof dataToUpdate.dueDate === 'string' ? Timestamp.fromDate(new Date(dataToUpdate.dueDate)) : dataToUpdate.dueDate,
+        dueDate: Timestamp.fromDate(new Date(dataToUpdate.dueDate)),
         paidDate: dataToUpdate.paidDate ? Timestamp.fromDate(new Date(dataToUpdate.paidDate)) : null,
     };
+    // Remove fields that shouldn't be directly updated or are managed by server
+    delete (firestoreReadyData as any).id; // Ensure id is not in the update payload
 
     try {
       await updateDoc(billDocRef, firestoreReadyData);
-      // onSnapshot updates state
-      return updatedBillData;
+      return updatedBillData; // Return the conceptual updated bill
     } catch (e) {
       console.error("Firebase: Failed to update bill:", e);
       toast({ title: "Fel", description: "Kunde inte uppdatera räkningen.", variant: "destructive" });

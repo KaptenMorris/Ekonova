@@ -2,63 +2,89 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
-import { getStorage, connectStorageEmulator } from 'firebase/storage'; // If you plan to use Firebase Storage for images
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
+
+const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+const firebaseAuthDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
+const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+const firebaseStorageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+const firebaseMessagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
+const firebaseAppId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
+// const firebaseMeasurementId = process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID; // Optional
+
+const requiredEnvVars = {
+  NEXT_PUBLIC_FIREBASE_API_KEY: firebaseApiKey,
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: firebaseAuthDomain,
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: firebaseProjectId,
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: firebaseStorageBucket,
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: firebaseMessagingSenderId,
+  NEXT_PUBLIC_FIREBASE_APP_ID: firebaseAppId,
+};
+
+let firebaseConfigIsValid = true;
+for (const [key, value] of Object.entries(requiredEnvVars)) {
+  if (!value || value.startsWith('YOUR_') || value.startsWith('PASTE_') || value === 'your-project-id') {
+    console.error(
+      `Firebase Configuration Error: Environment variable ${key} is not set or is still a placeholder. Please update it in your .env.local file.`
+    );
+    firebaseConfigIsValid = false;
+  }
+}
+
+if (!firebaseConfigIsValid) {
+  // Throwing an error here might be too disruptive for initial load if some parts of app can work without Firebase.
+  // Consider a state or a flag that other parts of the app can check.
+  console.error("Firebase initialization failed due to missing or placeholder environment variables. App functionality relying on Firebase will be affected.");
+}
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID, // Optional
+  apiKey: firebaseApiKey,
+  authDomain: firebaseAuthDomain,
+  projectId: firebaseProjectId,
+  storageBucket: firebaseStorageBucket,
+  messagingSenderId: firebaseMessagingSenderId,
+  appId: firebaseAppId,
+  // measurementId: firebaseMeasurementId, // Optional
 };
 
 let app: FirebaseApp;
-if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
+let authInstance: any; // Use 'any' to avoid type issues if not initialized
+let dbInstance: any;
+let storageInstance: any;
+
+if (firebaseConfigIsValid) {
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    app = getApps()[0];
+  }
+
+  authInstance = getAuth(app);
+  dbInstance = getFirestore(app);
+  storageInstance = getStorage(app);
+
+  // --- Emulator Setup (Optional - for local development) ---
+  // if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
+  //   // Ensure emulators are running before uncommenting these lines.
+  //   // try {
+  //   //   console.log("Connecting to Firebase Emulators...");
+  //   //   connectAuthEmulator(authInstance, 'http://localhost:9099', { disableWarnings: true });
+  //   //   connectFirestoreEmulator(dbInstance, 'localhost', 8080);
+  //   //   connectStorageEmulator(storageInstance, 'localhost', 9199);
+  //   //   console.log("Successfully connected to Firebase Emulators.");
+  //   // } catch (error) {
+  //   //   console.warn("Error connecting to Firebase Emulators (they might not be running):", error);
+  //   // }
+  // }
 } else {
-  app = getApps()[0];
+  // Provide dummy instances or handle the uninitialized state gracefully
+  // This prevents errors if other parts of the code try to use these exports when config is invalid
+  app = {} as FirebaseApp; // Cast to avoid type errors, but it's a non-functional instance
+  authInstance = {};
+  dbInstance = {};
+  storageInstance = {};
+  console.warn("Firebase SDKs (auth, db, storage) are not initialized due to configuration errors.");
 }
 
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app); // If using storage
 
-// --- Emulator Setup (Optional - for local development) ---
-// IMPORTANT: Ensure emulators are running before uncommenting these lines.
-// To use emulators:
-// 1. Install Firebase CLI: `npm install -g firebase-tools`
-// 2. Login: `firebase login`
-// 3. Initialize emulators in your project root: `firebase init emulators` (select Auth, Firestore, Storage)
-// 4. Start emulators: `firebase emulators:start`
-//
-// Then, uncomment these lines when running your Next.js dev server locally.
-// DO NOT deploy with emulators connected in production.
-
-// if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
-//   // Check if already connected to avoid re-connecting on HMR
-//   // NOTE: Firebase JS SDK v9+ has an issue where `auth.emulatorConfig` is null even when connected.
-//   // A common workaround is to use a flag or check a known emulator port.
-//   // For simplicity, we'll assume if window is defined and in dev, connect if not already.
-//   // This might need a more robust check in complex scenarios.
-//   try {
-//     if (auth.config.emulator?.host !== 'localhost:9099') { // Crude check
-//        console.log("Connecting to Firebase Auth Emulator");
-//        connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
-//     }
-//     if ((db as any)._settings?.host !== 'localhost:8080') { // Crude check for Firestore
-//        console.log("Connecting to Firebase Firestore Emulator");
-//        connectFirestoreEmulator(db, 'localhost', 8080);
-//     }
-//     // if ((storage as any)._service?.host !== 'localhost:9199') { // Crude check for Storage
-//     //   console.log("Connecting to Firebase Storage Emulator");
-//     //   connectStorageEmulator(storage, 'localhost', 9199);
-//     // }
-//   } catch (error) {
-//     console.warn("Error connecting to Firebase Emulators (they might not be running):", error);
-//   }
-// }
-
-
-export { app, auth, db, storage }; // Export storage if used
+export { app, authInstance as auth, dbInstance as db, storageInstance as storage };
