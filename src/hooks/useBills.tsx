@@ -4,26 +4,26 @@
 import type { ReactNode } from 'react';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { Bill } from '@/types';
-import { v4 as uuidv4 } from 'uuid'; // Keep for potential client-side ID needs before save
-import { ID, Databases, Query, AppwriteException } from 'appwrite';
-import { databases, databaseId, billsCollectionId, configOk } from '@/lib/appwrite'; // Import configOk
-import { useAuth } from '@/hooks/useMockAuth'; // Use the new Appwrite-based auth hook
+import {
+  collection,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  where,
+  Timestamp,
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase'; // Import Firestore instance
+import { useAuth } from '@/hooks/useMockAuth';
 import { useToast } from './use-toast';
-
-// Appwrite document structure for Bills
-interface AppwriteBillDocument extends Omit<Bill, 'id'> {
-    $id: string;
-    $createdAt: string;
-    $updatedAt: string;
-    $permissions: string[];
-    userId: string; // Add userId field for ownership
-}
 
 interface BillsContextType {
   bills: Bill[];
   isLoadingBills: boolean;
-  addBill: (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>) => Promise<Bill | null>; // Updated signature for adding new unpaid bill
-  toggleBillPaidStatus: (billId: string) => Promise<Bill | null>; // Return updated bill
+  addBill: (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>) => Promise<Bill | null>;
+  toggleBillPaidStatus: (billId: string) => Promise<Bill | null>;
   deleteBill: (billId: string) => Promise<void>;
   updateBill: (updatedBillData: Bill) => Promise<Bill | null>;
 }
@@ -36,250 +36,153 @@ export function BillProvider({ children }: { children: ReactNode }) {
   const [bills, setBills] = useState<Bill[]>([]);
   const [internalIsLoadingBills, setInternalIsLoadingBills] = useState(true);
 
-   // Helper to map Appwrite document to frontend Bill type
-   const mapDocumentToBill = (doc: AppwriteBillDocument): Bill => ({
-        id: doc.$id,
-        title: doc.title,
-        amount: doc.amount,
-        dueDate: doc.dueDate,
-        isPaid: doc.isPaid,
-        paidDate: doc.paidDate,
-        notes: doc.notes,
-        categoryId: doc.categoryId,
-        userId: doc.userId, // Include userId from Appwrite document
-   });
+  const mapFirestoreDocToBill = (docData: any, id: string): Bill => ({
+    id: id,
+    userId: docData.userId,
+    title: docData.title,
+    amount: docData.amount,
+    dueDate: docData.dueDate instanceof Timestamp ? docData.dueDate.toDate().toISOString() : docData.dueDate,
+    isPaid: docData.isPaid,
+    paidDate: docData.paidDate instanceof Timestamp ? docData.paidDate.toDate().toISOString() : docData.paidDate,
+    notes: docData.notes,
+    categoryId: docData.categoryId,
+  });
 
-
-  // Fetch bills from Appwrite
   const fetchBills = useCallback(async () => {
-    if (!configOk) {
-        setInternalIsLoadingBills(false);
-        console.error("Skipping fetchBills due to Appwrite configuration errors.");
-        return;
-    }
     if (!isAuthenticated || !userId) {
       setBills([]);
       setInternalIsLoadingBills(false);
-      return;
+      return () => {}; // Return an empty unsubscribe function
     }
     setInternalIsLoadingBills(true);
-    try {
-      const response = await databases.listDocuments(
-        databaseId,
-        billsCollectionId,
-        [Query.equal('userId', userId)] // Fetch bills belonging to the current user
-      );
-      const fetchedBills = response.documents.map(doc => mapDocumentToBill(doc as unknown as AppwriteBillDocument));
+    const billsCollectionRef = collection(db, 'bills');
+    const q = query(billsCollectionRef, where('userId', '==', userId));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const fetchedBills: Bill[] = [];
+      querySnapshot.forEach((doc) => {
+        fetchedBills.push(mapFirestoreDocToBill(doc.data(), doc.id));
+      });
       setBills(fetchedBills);
+      setInternalIsLoadingBills(false);
+    }, (error) => {
+      console.error("Firebase: Failed to fetch bills:", error);
+      toast({ title: "Fel", description: "Kunde inte ladda dina räkningar.", variant: "destructive" });
+      setInternalIsLoadingBills(false);
+    });
+    return unsubscribe;
+  }, [isAuthenticated, userId, toast]);
+
+  useEffect(() => {
+    let unsubscribe = () => {};
+    if (!isLoadingAuth) {
+      fetchBills().then(unsub => unsubscribe = unsub);
+    }
+    return () => unsubscribe();
+  }, [isLoadingAuth, fetchBills]);
+
+  const addBill = useCallback(async (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>): Promise<Bill | null> => {
+    if (!isAuthenticated || !userId) {
+      toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad.", variant: "destructive" });
+      return null;
+    }
+     if (!billData.categoryId) {
+        toast({ title: "Fel", description: "Kategori måste väljas för räkningen.", variant: "destructive" });
+        return null;
+    }
+    setInternalIsLoadingBills(true);
+    const newBillDataForFirestore = {
+      ...billData,
+      userId: userId,
+      isPaid: false,
+      paidDate: null, // Use null for Firestore compatibility
+      // Convert dueDate to Timestamp if it's a string
+      dueDate: typeof billData.dueDate === 'string' ? Timestamp.fromDate(new Date(billData.dueDate)) : billData.dueDate,
+    };
+
+    try {
+      // Explicitly cast to remove 'id' if it sneaks in, as addDoc generates it
+      const { id, ...dataToSave } = newBillDataForFirestore as any;
+
+      const docRef = await addDoc(collection(db, 'bills'), dataToSave);
+      // Construct the bill object for local state using the server-generated ID
+      const newBill: Bill = {
+        ...billData, // Original data
+        id: docRef.id, // Firebase generated ID
+        userId: userId,
+        isPaid: false,
+        paidDate: null,
+      };
+      // onSnapshot should update, but for immediate feedback:
+      setBills(prev => [...prev, newBill]);
+      return newBill;
     } catch (e) {
-      console.error("Appwrite: Failed to fetch bills:", e);
-       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-            toast({ title: "Nätverksfel", description: "Kunde inte ladda dina räkningar. Kontrollera din anslutning.", variant: "destructive" });
-       } else if (!(e instanceof AppwriteException && e.code === 404)) { // Ignore collection not found initially maybe? Or handle creation elsewhere
-           toast({ title: "Fel", description: "Kunde inte ladda dina räkningar.", variant: "destructive" });
-       }
-      setBills([]);
+      console.error("Firebase: Failed to add bill:", e);
+      toast({ title: "Fel", description: "Kunde inte lägga till räkningen.", variant: "destructive" });
+      return null;
     } finally {
       setInternalIsLoadingBills(false);
     }
   }, [isAuthenticated, userId, toast]);
 
-  // Effect to load bills when auth state changes
-  useEffect(() => {
-    if (!isLoadingAuth) {
-        fetchBills();
-    }
-  }, [isAuthenticated, userId, isLoadingAuth, fetchBills]);
+  const toggleBillPaidStatus = useCallback(async (billId: string): Promise<Bill | null> => {
+    if (!isAuthenticated || !userId) return null;
+    const billToToggle = bills.find(b => b.id === billId);
+    if (!billToToggle) return null;
 
-  // --- CRUD Operations ---
+    const newPaidStatus = !billToToggle.isPaid;
+    const updatedData = {
+      isPaid: newPaidStatus,
+      paidDate: newPaidStatus ? Timestamp.now() : null,
+    };
+    const billDocRef = doc(db, 'bills', billId);
+    try {
+      await updateDoc(billDocRef, updatedData);
+      // onSnapshot updates state, but return the conceptually updated bill
+      return { ...billToToggle, ...updatedData, paidDate: updatedData.paidDate ? updatedData.paidDate.toDate().toISOString() : null };
+    } catch (e) {
+      console.error("Firebase: Failed to toggle bill status:", e);
+      toast({ title: "Fel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive" });
+      return null;
+    }
+  }, [isAuthenticated, userId, bills, toast]);
 
-  const addBill = useCallback(async (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>): Promise<Bill | null> => {
-    if (!configOk) {
-         toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
-         return null;
+  const deleteBill = useCallback(async (billId: string) => {
+    if (!isAuthenticated || !userId) return;
+    const billDocRef = doc(db, 'bills', billId);
+    try {
+      await deleteDoc(billDocRef);
+      // Toast handled by caller
+      // onSnapshot updates state
+    } catch (e) {
+      console.error("Firebase: Failed to delete bill:", e);
+      toast({ title: "Fel", description: "Kunde inte radera räkningen.", variant: "destructive" });
     }
-    if (!isAuthenticated || !userId) {
-        toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad för att lägga till en räkning.", variant: "destructive" });
-        return null;
-    }
-    // Ensure categoryId exists
-    if (!billData.categoryId) {
-        console.error("categoryId saknas när räkning läggs till.");
-        toast({ title: "Fel", description: "Kategori måste väljas för räkningen.", variant: "destructive" });
-        return null;
-    }
+  }, [isAuthenticated, userId, toast]);
 
-    setInternalIsLoadingBills(true); // Use internal loading state
-    const newBillDataForAppwrite = {
-      ...billData,
-      userId: userId,
-      isPaid: false, // New bills are initially unpaid
-      paidDate: null, // New bills don't have a paid date
+  const updateBill = useCallback(async (updatedBillData: Bill): Promise<Bill | null> => {
+    if (!isAuthenticated || !userId) return null;
+    const { id, userId: billUserId, ...dataToUpdate } = updatedBillData;
+    const billDocRef = doc(db, 'bills', id);
+
+    // Convert dates to Timestamps for Firestore
+    const firestoreReadyData = {
+        ...dataToUpdate,
+        dueDate: typeof dataToUpdate.dueDate === 'string' ? Timestamp.fromDate(new Date(dataToUpdate.dueDate)) : dataToUpdate.dueDate,
+        paidDate: dataToUpdate.paidDate ? Timestamp.fromDate(new Date(dataToUpdate.paidDate)) : null,
     };
 
     try {
-      const document = await databases.createDocument(
-        databaseId,
-        billsCollectionId,
-        ID.unique(),
-        newBillDataForAppwrite
-      );
-
-      const newBill = mapDocumentToBill(document as unknown as AppwriteBillDocument);
-      setBills(prevBills => [...prevBills, newBill]);
-      setInternalIsLoadingBills(false);
-    //   toast({ title: "Räkning Tillagd", description: `"${newBill.title}" har lagts till.` }); // Toast handled by calling component
-      return newBill;
+      await updateDoc(billDocRef, firestoreReadyData);
+      // onSnapshot updates state
+      return updatedBillData;
     } catch (e) {
-      console.error("Appwrite: Failed to add bill:", e);
-       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-           toast({ title: "Nätverksfel", description: "Kunde inte lägga till räkningen.", variant: "destructive" });
-       } else {
-           toast({ title: "Fel", description: "Kunde inte lägga till räkningen.", variant: "destructive" });
-       }
-      setInternalIsLoadingBills(false);
+      console.error("Firebase: Failed to update bill:", e);
+      toast({ title: "Fel", description: "Kunde inte uppdatera räkningen.", variant: "destructive" });
       return null;
     }
   }, [isAuthenticated, userId, toast]);
 
-
- const toggleBillPaidStatus = useCallback(async (billId: string): Promise<Bill | null> => {
-    if (!configOk || !isAuthenticated || !userId) return null;
-
-    const billToToggle = bills.find(b => b.id === billId);
-    if (!billToToggle) {
-        toast({ title: "Fel", description: "Kunde inte hitta räkningen att uppdatera.", variant: "destructive" });
-        return null;
-    }
-
-    setInternalIsLoadingBills(true); // Use internal loading state
-    const originalBill = { ...billToToggle }; // Backup for optimistic revert
-    const newPaidStatus = !billToToggle.isPaid;
-    const updatedBillData = {
-        isPaid: newPaidStatus,
-        paidDate: newPaidStatus ? new Date().toISOString() : null, // Use null for Appwrite instead of undefined
-    };
-
-    // Optimistic UI Update
-    let updatedBillOptimistic: Bill | null = null;
-     setBills(prevBills =>
-       prevBills.map(bill => {
-           if (bill.id === billId) {
-               updatedBillOptimistic = { ...bill, ...updatedBillData };
-               return updatedBillOptimistic;
-           }
-           return bill;
-       })
-     );
-
-
-    try {
-      const updatedDoc = await databases.updateDocument(
-        databaseId,
-        billsCollectionId,
-        billId,
-        updatedBillData
-      );
-      const confirmedBill = mapDocumentToBill(updatedDoc as unknown as AppwriteBillDocument);
-      // Update local state with confirmed data (might be redundant if optimistic was correct)
-      setBills(prevBills => prevBills.map(b => b.id === confirmedBill.id ? confirmedBill : b));
-      setInternalIsLoadingBills(false);
-      // Toast is handled by the calling component (BillsPage) based on the outcome
-      return confirmedBill;
-    } catch (e) {
-      console.error("Appwrite: Failed to toggle bill status:", e);
-       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-           toast({ title: "Nätverksfel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive" });
-       } else {
-          toast({ title: "Fel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive" });
-       }
-      setBills(prevBills => prevBills.map(b => b.id === billId ? originalBill : b)); // Revert optimistic update
-      setInternalIsLoadingBills(false);
-      return null;
-    }
-  }, [isAuthenticated, userId, bills, toast]);
-
-
-  const deleteBill = useCallback(async (billId: string) => {
-    if (!configOk || !isAuthenticated || !userId) return;
-    const billToDelete = bills.find(b => b.id === billId);
-    const originalBills = [...bills]; // Backup
-
-    setInternalIsLoadingBills(true); // Use internal loading state
-    // Optimistic UI Update
-    setBills(prevBills => prevBills.filter(bill => bill.id !== billId));
-
-    try {
-      await databases.deleteDocument(
-        databaseId,
-        billsCollectionId,
-        billId
-      );
-      setInternalIsLoadingBills(false);
-      // Toast handled by BillsPage which calls this
-    } catch (e) {
-      console.error("Appwrite: Failed to delete bill:", e);
-      if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-          toast({ title: "Nätverksfel", description: "Kunde inte radera räkningen.", variant: "destructive" });
-      } else {
-          toast({ title: "Fel", description: "Kunde inte radera räkningen.", variant: "destructive" });
-      }
-      setBills(originalBills); // Revert optimistic update
-      setInternalIsLoadingBills(false);
-    }
-  }, [isAuthenticated, userId, bills, toast]);
-
-
-  const updateBill = useCallback(async (updatedBillData: Bill): Promise<Bill | null> => {
-    if (!configOk || !isAuthenticated || !userId) return null;
-    const { id, userId: billUserId, ...dataToUpdate } = updatedBillData; // Separate ID and internal userId from data
-
-    const originalBill = bills.find(b => b.id === id);
-    if (!originalBill) return null;
-
-    setInternalIsLoadingBills(true); // Use internal loading state
-    // Optimistic UI Update
-    setBills(prevBills => prevBills.map(b => b.id === id ? updatedBillData : b));
-
-
-    try {
-      const updatedDoc = await databases.updateDocument(
-        databaseId,
-        billsCollectionId,
-        id,
-        {
-            // Ensure only fields present in AppwriteBillDocument (excluding system fields and id) are sent
-            // userId: userId, // We don't update userId here, keep the original owner
-            title: dataToUpdate.title,
-            amount: dataToUpdate.amount,
-            dueDate: dataToUpdate.dueDate,
-            isPaid: dataToUpdate.isPaid,
-            paidDate: dataToUpdate.paidDate || null, // Use null for Appwrite
-            notes: dataToUpdate.notes,
-            categoryId: dataToUpdate.categoryId,
-        }
-      );
-      const confirmedBill = mapDocumentToBill(updatedDoc as unknown as AppwriteBillDocument);
-       // Update state with confirmed data
-       setBills(prevBills => prevBills.map(b => b.id === confirmedBill.id ? confirmedBill : b));
-      setInternalIsLoadingBills(false);
-    //   toast({ title: "Räkning Uppdaterad", description: `"${confirmedBill.title}" har uppdaterats.` }); // Toast handled by calling component
-      return confirmedBill;
-    } catch (e) {
-      console.error("Appwrite: Failed to update bill:", e);
-       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-           toast({ title: "Nätverksfel", description: "Kunde inte uppdatera räkningen.", variant: "destructive" });
-       } else {
-           toast({ title: "Fel", description: "Kunde inte uppdatera räkningen.", variant: "destructive" });
-       }
-      setBills(prevBills => prevBills.map(b => b.id === id ? originalBill : b)); // Revert optimistic update
-      setInternalIsLoadingBills(false);
-      return null;
-    }
-  }, [isAuthenticated, userId, bills, toast]);
-
-
-  // --- Context Value ---
   const combinedIsLoading = isLoadingAuth || internalIsLoadingBills;
 
   const contextValue: BillsContextType = {

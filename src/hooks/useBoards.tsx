@@ -4,26 +4,25 @@
 import type { ReactNode} from 'react';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { Board, Category, Transaction } from '@/types';
-import { v4 as uuidv4 } from 'uuid'; // Keep for client-side generation if needed before Appwrite ID
-import { ID, Databases, Query, AppwriteException } from 'appwrite';
-import { databases, databaseId, boardsCollectionId, configOk } from '@/lib/appwrite'; // Import configOk
+import { v4 as uuidv4 } from 'uuid';
+import {
+  collection,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  where,
+  Timestamp, // For Firestore Timestamps if needed
+  arrayUnion,
+  arrayRemove,
+  writeBatch,
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase'; // Import Firestore instance
 import { INITIAL_BOARD_CATEGORY_TEMPLATES, DEFAULT_BOARD_NAME } from '@/config/constants';
-import { useAuth } from '@/hooks/useMockAuth'; // Use the new Appwrite-based auth hook
+import { useAuth } from '@/hooks/useMockAuth';
 import { useToast } from './use-toast';
-
-// Appwrite typically returns documents with system attributes ($id, $createdAt, etc.)
-// Extend our types or handle the mapping
-interface AppwriteBoardDocument extends Omit<Board, 'id'> {
-    $id: string;
-    $createdAt: string;
-    $updatedAt: string;
-    $permissions: string[];
-    userId: string; // Add userId field for ownership
-    categories: string; // Store as JSON string
-    transactions: string; // Store as JSON string
-    sharedWith?: string; // Store as JSON string
-}
-
 
 interface BoardsContextType {
   boards: Board[];
@@ -34,8 +33,8 @@ interface BoardsContextType {
   addBoard: (name: string) => Promise<Board | null>;
   renameBoard: (boardId: string, newName: string) => Promise<void>;
   deleteBoard: (boardId: string) => Promise<void>;
-  shareBoard: (boardId: string, email: string) => Promise<void>; // Sharing logic needs review with Appwrite permissions
-  unshareBoard: (boardId: string, email: string) => Promise<void>; // Sharing logic needs review with Appwrite permissions
+  shareBoard: (boardId: string, emailToShareWith: string) => Promise<void>;
+  unshareBoard: (boardId: string, emailToUnshare: string) => Promise<void>;
   addCategoryToActiveBoard: (categoryData: Omit<Category, 'id'>) => Promise<Category | null>;
   deleteCategoryFromActiveBoard: (categoryId: string) => Promise<void>;
   addTransactionToActiveBoard: (transactionData: Omit<Transaction, 'id'>) => Promise<Transaction | null>;
@@ -52,113 +51,77 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const [activeBoardId, setActiveBoardIdState] = useState<string | null>(null);
   const [internalIsLoadingBoards, setInternalIsLoadingBoards] = useState(true);
 
-  // Helper to map Appwrite document to frontend Board type
-  const mapDocumentToBoard = (doc: AppwriteBoardDocument): Board => {
-      try {
-        const categories = JSON.parse(doc.categories || '[]') as Category[];
-        const transactions = JSON.parse(doc.transactions || '[]') as Transaction[];
-        const sharedWith = JSON.parse(doc.sharedWith || '[]') as string[];
-        return {
-            id: doc.$id,
-            name: doc.name,
-            categories: categories,
-            transactions: transactions,
-            createdAt: doc.$createdAt,
-            sharedWith: sharedWith,
-            userId: doc.userId,
-            // Include other fields if necessary
-        };
-      } catch (e) {
-          console.error(`Error parsing data for board ${doc.$id}:`, e);
-           toast({ title: "Fel", description: `Kunde inte ladda data korrekt för tavlan "${doc.name}".`, variant: "destructive" });
-          // Return a default/empty state for this board to avoid crashing
-          return {
-            id: doc.$id,
-            name: doc.name + " (Laddningsfel)",
-            categories: [],
-            transactions: [],
-            createdAt: doc.$createdAt,
-            sharedWith: [],
-            userId: doc.userId,
-          };
-      }
-
+  const mapFirestoreDocToBoard = (docData: any, id: string): Board => {
+    return {
+      id: id,
+      userId: docData.userId,
+      name: docData.name,
+      // Ensure categories and transactions are arrays, default to empty if not present
+      categories: Array.isArray(docData.categories) ? docData.categories : [],
+      transactions: Array.isArray(docData.transactions) ? docData.transactions : [],
+      createdAt: docData.createdAt instanceof Timestamp ? docData.createdAt.toDate().toISOString() : (docData.createdAt || new Date().toISOString()),
+      sharedWith: Array.isArray(docData.sharedWith) ? docData.sharedWith : [],
+    };
   };
 
-  // Fetch boards from Appwrite
   const fetchBoards = useCallback(async () => {
-    if (!configOk) {
-        setInternalIsLoadingBoards(false);
-        console.error("Skipping fetchBoards due to Appwrite configuration errors.");
-        return;
-    }
     if (!isAuthenticated || !userId) {
       setBoards([]);
       setActiveBoardIdState(null);
       setInternalIsLoadingBoards(false);
-      return;
+      return () => {}; // Return an empty unsubscribe function
     }
     setInternalIsLoadingBoards(true);
-    try {
-      const response = await databases.listDocuments(
-        databaseId,
-        boardsCollectionId,
-        [Query.equal('userId', userId)] // Fetch boards belonging to the current user
-      );
-      const fetchedBoards = response.documents.map(doc => mapDocumentToBoard(doc as unknown as AppwriteBoardDocument));
+    const boardsCollectionRef = collection(db, 'boards');
+    const q = query(boardsCollectionRef, where('userId', '==', userId));
+
+    const unsubscribe = onSnapshot(q, async (querySnapshot) => {
+      const fetchedBoards: Board[] = [];
+      querySnapshot.forEach((doc) => {
+        fetchedBoards.push(mapFirestoreDocToBoard(doc.data(), doc.id));
+      });
       setBoards(fetchedBoards);
 
-      // Determine active board
-      const activeIdKey = `ekonova-active-board-id-${userId}`; // Keep active ID local for preference
-       const storedActiveId = typeof window !== 'undefined' ? localStorage.getItem(activeIdKey) : null;
+      const activeIdKey = `ekonova-active-board-id-${userId}`;
+      const storedActiveId = typeof window !== 'undefined' ? localStorage.getItem(activeIdKey) : null;
 
-      if (fetchedBoards.length === 0) {
-        // No boards found, create the default one
-        // Use a temporary flag to avoid re-fetching immediately after adding
-        const isCreatingDefault = true;
-        const defaultBoard = await addBoard(DEFAULT_BOARD_NAME, isCreatingDefault); // addBoard handles saving to Appwrite
+      if (fetchedBoards.length === 0 && !internalIsLoadingBoards) { // Only create default if not already loading (prevents race on initial load)
+        const defaultBoard = await addBoard(DEFAULT_BOARD_NAME, true);
         if (defaultBoard && typeof window !== 'undefined') {
-            localStorage.setItem(activeIdKey, defaultBoard.id); // Set newly created board as active
+            localStorage.setItem(activeIdKey, defaultBoard.id);
         }
       } else if (storedActiveId && fetchedBoards.some(b => b.id === storedActiveId)) {
         setActiveBoardIdState(storedActiveId);
       } else if (fetchedBoards.length > 0) {
-        // Fallback to the first board if stored ID is invalid or missing
         setActiveBoardIdState(fetchedBoards[0].id);
         if (typeof window !== 'undefined') {
              localStorage.setItem(activeIdKey, fetchedBoards[0].id);
         }
       } else {
-          setActiveBoardIdState(null); // Should be handled by the length === 0 case above
+        setActiveBoardIdState(null);
       }
-
-    } catch (e) {
-      console.error("Appwrite: Failed to fetch boards:", e);
-      if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-           toast({ title: "Nätverksfel", description: "Kunde inte ladda dina tavlor. Kontrollera din anslutning.", variant: "destructive" });
-      } else {
-          toast({ title: "Fel", description: "Kunde inte ladda dina tavlor.", variant: "destructive" });
-      }
-      setBoards([]);
-      setActiveBoardIdState(null);
-    } finally {
       setInternalIsLoadingBoards(false);
-    }
+    }, (error) => {
+      console.error("Firebase: Failed to fetch boards:", error);
+      toast({ title: "Fel", description: "Kunde inte ladda dina tavlor.", variant: "destructive" });
+      setInternalIsLoadingBoards(false);
+    });
+
+    return unsubscribe; // Return the unsubscribe function for cleanup
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, userId, toast]); // Removed addBoard from dependency array
+  }, [isAuthenticated, userId, toast]); // addBoard removed for now
 
-
-  // Effect to load boards when auth state changes
   useEffect(() => {
+    let unsubscribe = () => {};
     if (!isLoadingAuth) {
-      fetchBoards();
+      fetchBoards().then(unsub => unsubscribe = unsub);
     }
-  }, [isAuthenticated, userId, isLoadingAuth, fetchBoards]);
+    return () => unsubscribe(); // Cleanup subscription on unmount
+  }, [isLoadingAuth, fetchBoards]);
 
-  // Function to set active board ID (updates state and localStorage)
-   const setActiveBoardId = useCallback((boardId: string | null) => {
-    if (!isAuthenticated || !userId) return; // Only allow setting if authenticated
 
+  const setActiveBoardId = useCallback((boardId: string | null) => {
+    if (!isAuthenticated || !userId) return;
     setActiveBoardIdState(boardId);
     const activeIdKey = `ekonova-active-board-id-${userId}`;
     if (typeof window !== 'undefined') {
@@ -174,330 +137,206 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, userId]);
 
-  // --- CRUD Operations ---
 
   const addBoard = useCallback(async (name: string, isCreatingDefault = false): Promise<Board | null> => {
-    if (!configOk) {
-         toast({ title: "Konfigurationsfel", description: "Appen är inte korrekt konfigurerad.", variant: "destructive" });
-         return null;
-    }
     if (!isAuthenticated || !userId) {
-        toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad för att skapa en tavla.", variant: "destructive" });
-        return null;
+      toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad.", variant: "destructive" });
+      return null;
     }
-    if (!isCreatingDefault) setInternalIsLoadingBoards(true); // Only show loading for user-initiated adds
+    if (!isCreatingDefault) setInternalIsLoadingBoards(true);
 
     const newCategories = INITIAL_BOARD_CATEGORY_TEMPLATES.map(template => ({
       ...template,
-      id: uuidv4(), // Client-side ID generation for nested items
+      id: uuidv4(),
     }));
 
     const newBoardData = {
       userId: userId,
       name: name,
-      categories: JSON.stringify(newCategories),
-      transactions: JSON.stringify([]),
-      sharedWith: JSON.stringify([]),
-      // createdAt is handled by Appwrite ($createdAt)
+      categories: newCategories, // Store as array of objects
+      transactions: [], // Store as array of objects
+      createdAt: Timestamp.now(), // Use Firestore Timestamp
+      sharedWith: [],
     };
 
     try {
-      const document = await databases.createDocument(
-        databaseId,
-        boardsCollectionId,
-        ID.unique(), // Appwrite generates the document ID
-        newBoardData
-      );
+      const docRef = await addDoc(collection(db, 'boards'), newBoardData);
+      const newBoard = mapFirestoreDocToBoard(newBoardData, docRef.id); // Use newBoardData as it's what was written
 
-      const newBoard = mapDocumentToBoard(document as unknown as AppwriteBoardDocument);
-      setBoards(prevBoards => [...prevBoards, newBoard]);
-      setActiveBoardId(newBoard.id); // Make the new board active
+      // No need to call setBoards here if onSnapshot is working correctly for initial load.
+      // For immediate UI update if onSnapshot is slow or for the default board case:
+      setBoards(prev => [...prev, newBoard]);
+      setActiveBoardId(newBoard.id);
+
       if (!isCreatingDefault) {
-          setInternalIsLoadingBoards(false);
-          toast({ title: "Tavla Skapad", description: `Tavlan "${name}" har skapats.` });
+        toast({ title: "Tavla Skapad", description: `Tavlan "${name}" har skapats.` });
       }
       return newBoard;
     } catch (e) {
-      console.error("Appwrite: Failed to add board:", e);
-       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-           toast({ title: "Nätverksfel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
-       } else {
-           toast({ title: "Fel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
-       }
-      if (!isCreatingDefault) setInternalIsLoadingBoards(false);
+      console.error("Firebase: Failed to add board:", e);
+      toast({ title: "Fel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
       return null;
+    } finally {
+      if (!isCreatingDefault) setInternalIsLoadingBoards(false);
     }
   }, [isAuthenticated, userId, toast, setActiveBoardId]);
 
 
   const renameBoard = useCallback(async (boardId: string, newName: string) => {
-    if (!configOk || !isAuthenticated || !userId) return;
-    setInternalIsLoadingBoards(true);
-     const originalBoards = [...boards]; // Backup for optimistic revert
-     // Optimistic UI Update
-     setBoards(prevBoards =>
-       prevBoards.map(board =>
-         board.id === boardId ? { ...board, name: newName } : board
-       )
-     );
-
+    if (!isAuthenticated || !userId) return;
+    const boardDocRef = doc(db, 'boards', boardId);
     try {
-      await databases.updateDocument(
-        databaseId,
-        boardsCollectionId,
-        boardId,
-        { name: newName }
-      );
-       toast({ title: "Tavla Omdöpt", description: `Tavlan har döpts om till "${newName}".` });
+      await updateDoc(boardDocRef, { name: newName });
+      toast({ title: "Tavla Omdöpt", description: `Tavlan har döpts om till "${newName}".` });
+      // onSnapshot should update local state
     } catch (e) {
-      console.error("Appwrite: Failed to rename board:", e);
-       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-          toast({ title: "Nätverksfel", description: "Kunde inte döpa om tavlan.", variant: "destructive" });
-       } else {
-          toast({ title: "Fel", description: "Kunde inte döpa om tavlan.", variant: "destructive" });
-       }
-      setBoards(originalBoards); // Revert optimistic update on error
-    } finally {
-        setInternalIsLoadingBoards(false);
+      console.error("Firebase: Failed to rename board:", e);
+      toast({ title: "Fel", description: "Kunde inte döpa om tavlan.", variant: "destructive" });
     }
-  }, [isAuthenticated, userId, boards, toast]);
+  }, [isAuthenticated, userId, toast]);
 
   const deleteBoard = useCallback(async (boardId: string) => {
-    if (!configOk || !isAuthenticated || !userId) return;
-    setInternalIsLoadingBoards(true);
+    if (!isAuthenticated || !userId) return;
+    const boardDocRef = doc(db, 'boards', boardId);
     const boardToDelete = boards.find(b => b.id === boardId);
-    const originalBoards = [...boards]; // Backup for optimistic revert
-
-     // Optimistic UI Update
-     const updatedBoardsOptimistic = boards.filter(board => board.id !== boardId);
-     setBoards(updatedBoardsOptimistic);
-
-     // Handle active board change after optimistic delete
-      if (activeBoardId === boardId) {
-        if (updatedBoardsOptimistic.length > 0) {
-            setActiveBoardId(updatedBoardsOptimistic[0].id);
-        } else {
-            setActiveBoardId(null); // No boards left, clear activeId
-        }
-      }
-
-
     try {
-      await databases.deleteDocument(
-        databaseId,
-        boardsCollectionId,
-        boardId
-      );
+      await deleteDoc(boardDocRef);
       toast({ title: "Tavla Raderad", description: `Tavlan "${boardToDelete?.name || boardId}" har raderats.` });
-      // If delete is successful, optimistic update is final.
-      // If no boards remain, trigger creation of a default one
-      if (updatedBoardsOptimistic.length === 0) {
-          await addBoard(DEFAULT_BOARD_NAME, true); // This will set the new default as active
+      // onSnapshot should handle state update and active board logic
+      if (activeBoardId === boardId) { // If deleted board was active
+          const remainingBoards = boards.filter(b => b.id !== boardId);
+          if (remainingBoards.length > 0) {
+              setActiveBoardId(remainingBoards[0].id);
+          } else {
+              setActiveBoardId(null);
+              // Optionally create a new default board if none are left
+              await addBoard(DEFAULT_BOARD_NAME, true);
+          }
       }
-
     } catch (e) {
-      console.error("Appwrite: Failed to delete board:", e);
-       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-          toast({ title: "Nätverksfel", description: "Kunde inte radera tavlan.", variant: "destructive" });
-       } else {
-          toast({ title: "Fel", description: "Kunde inte radera tavlan.", variant: "destructive" });
-       }
-      // Revert optimistic update on error
-      setBoards(originalBoards);
-      // Also revert active board ID if it was changed optimistically
-       if (activeBoardId === boardId) {
-            setActiveBoardId(boardId); // Set it back
-       }
-
-    } finally {
-        setInternalIsLoadingBoards(false);
+      console.error("Firebase: Failed to delete board:", e);
+      toast({ title: "Fel", description: "Kunde inte radera tavlan.", variant: "destructive" });
     }
-  }, [isAuthenticated, userId, boards, activeBoardId, setActiveBoardId, toast, addBoard]); // Add addBoard dependency
+  }, [isAuthenticated, userId, boards, activeBoardId, setActiveBoardId, toast, addBoard]);
 
-  // --- Modify Active Board Helper ---
-   const modifyActiveBoard = useCallback(async (updateFn: (board: Board) => Partial<AppwriteBoardDocument> | null): Promise<Board | null> => {
-    if (!configOk || !isAuthenticated || !userId || !activeBoardId) return null;
+
+  const modifyActiveBoardArrayField = useCallback(async (
+    fieldName: 'categories' | 'transactions' | 'sharedWith',
+    updateLogic: (currentArray: any[]) => any[]
+  ): Promise<boolean> => {
+    if (!isAuthenticated || !userId || !activeBoardId) return false;
 
     const currentBoard = boards.find(b => b.id === activeBoardId);
-    if (!currentBoard) return null;
+    if (!currentBoard) return false;
 
-    const updateData = updateFn(currentBoard);
-    if (!updateData) return currentBoard; // No changes needed
-
-     const originalBoards = [...boards]; // Backup
-      // Optimistic Update
-     let updatedBoardOptimistic: Board | null = null;
-     setBoards(prevBoards =>
-       prevBoards.map(board => {
-         if (board.id === activeBoardId) {
-           // Apply changes locally for UI update
-            updatedBoardOptimistic = mapDocumentToBoard({
-                ...currentBoard, // Existing board data
-                 $id: currentBoard.id, // mapDocument needs $id
-                 userId: userId, // Need userId
-                 // Apply the *parsed* update data back
-                 name: updateData.name ?? currentBoard.name,
-                 categories: updateData.categories ?? JSON.stringify(currentBoard.categories),
-                 transactions: updateData.transactions ?? JSON.stringify(currentBoard.transactions),
-                 sharedWith: updateData.sharedWith ?? JSON.stringify(currentBoard.sharedWith ?? []),
-                 // Dummy values for system fields needed by mapDocumentToBoard
-                 $createdAt: currentBoard.createdAt,
-                 $updatedAt: new Date().toISOString(),
-                 $permissions: [],
-            });
-           return updatedBoardOptimistic;
-         }
-         return board;
-       })
-     );
-
+    const boardDocRef = doc(db, 'boards', activeBoardId);
+    const currentArray = (currentBoard[fieldName] as any[]) || [];
+    const updatedArray = updateLogic(currentArray);
 
     try {
-        setInternalIsLoadingBoards(true); // Indicate loading during Appwrite call
-        const updatedDoc = await databases.updateDocument(
-            databaseId,
-            boardsCollectionId,
-            activeBoardId,
-            updateData // Send only the fields to update (e.g., { categories: '...' })
-        );
-         // Update local state with the confirmed data from Appwrite
-         const confirmedBoard = mapDocumentToBoard(updatedDoc as unknown as AppwriteBoardDocument);
-         setBoards(prevBoards => prevBoards.map(b => b.id === confirmedBoard.id ? confirmedBoard : b));
-         setInternalIsLoadingBoards(false);
-         return confirmedBoard;
-
+      await updateDoc(boardDocRef, { [fieldName]: updatedArray });
+      // onSnapshot will update local state, so explicit setBoards might not be needed
+      // or could cause race conditions if not handled carefully with onSnapshot.
+      return true;
     } catch (e) {
-      console.error("Appwrite: Failed to update active board:", e);
-       if (e instanceof AppwriteException && e.message.includes('Failed to fetch')) {
-          toast({ title: "Nätverksfel", description: "Kunde inte uppdatera tavlan.", variant: "destructive" });
-       } else {
-          toast({ title: "Fel", description: "Kunde inte uppdatera tavlan.", variant: "destructive" });
-       }
-      setBoards(originalBoards); // Revert optimistic update
-      setInternalIsLoadingBoards(false);
-      return null;
+      console.error(`Firebase: Failed to update ${fieldName} for active board:`, e);
+      toast({ title: "Fel", description: `Kunde inte uppdatera ${fieldName}.`, variant: "destructive" });
+      return false;
     }
-   }, [isAuthenticated, userId, activeBoardId, boards, toast]);
+  }, [isAuthenticated, userId, activeBoardId, boards, toast]);
 
-
-  // --- Category and Transaction Operations (using modifyActiveBoard) ---
 
   const addCategoryToActiveBoard = useCallback(async (categoryData: Omit<Category, 'id'>): Promise<Category | null> => {
-     if (!configOk || !isAuthenticated || !userId || !activeBoardId) return null;
-     const newCategory: Category = {
-       ...categoryData,
-       id: uuidv4(), // Generate ID client-side
-       icon: categoryData.icon || 'Archive'
-     };
-      let resultCategory: Category | null = null;
-      await modifyActiveBoard(board => {
-        const updatedCategories = [...board.categories, newCategory];
-        resultCategory = newCategory; // Capture the category being added
-        return { categories: JSON.stringify(updatedCategories) };
-      });
-      if(resultCategory) {
-         toast({ title: "Kategori Tillagd", description: `"${newCategory.name}" har lagts till.` });
-      }
-      return resultCategory; // Return the added category (with generated ID)
-  }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
+    const newCategory: Category = { ...categoryData, id: uuidv4(), icon: categoryData.icon || 'Archive' };
+    const success = await modifyActiveBoardArrayField('categories', current => [...current, newCategory]);
+    if (success) {
+      toast({ title: "Kategori Tillagd", description: `"${newCategory.name}" har lagts till.` });
+      return newCategory;
+    }
+    return null;
+  }, [modifyActiveBoardArrayField, toast]);
 
   const deleteCategoryFromActiveBoard = useCallback(async (categoryId: string) => {
-     if (!configOk || !isAuthenticated || !userId || !activeBoardId) return;
-     let categoryName = '';
-     await modifyActiveBoard(board => {
-        const categoryToDelete = board.categories.find(c => c.id === categoryId);
-        categoryName = categoryToDelete?.name || categoryId;
-        const updatedCategories = board.categories.filter(c => c.id !== categoryId);
-        const updatedTransactions = board.transactions.filter(t => t.categoryId !== categoryId);
-        return {
-            categories: JSON.stringify(updatedCategories),
-            transactions: JSON.stringify(updatedTransactions)
-        };
-     });
-     toast({ title: "Kategori Raderad", description: `"${categoryName}" och dess transaktioner har tagits bort.` });
-  }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
+    let categoryName = '';
+    // First, find the category to get its name for the toast message
+    const board = boards.find(b => b.id === activeBoardId);
+    const catToDelete = board?.categories.find(c => c.id === categoryId);
+    categoryName = catToDelete?.name || categoryId;
+
+    const success = await modifyActiveBoardArrayField('categories', current => current.filter(c => c.id !== categoryId));
+    if (success) {
+      // Also remove transactions associated with this category
+      await modifyActiveBoardArrayField('transactions', current => current.filter(t => t.categoryId !== categoryId));
+      toast({ title: "Kategori Raderad", description: `"${categoryName}" och dess transaktioner har tagits bort.` });
+    }
+  }, [modifyActiveBoardArrayField, toast, boards, activeBoardId]);
 
   const addTransactionToActiveBoard = useCallback(async (transactionData: Omit<Transaction, 'id'>): Promise<Transaction | null> => {
-    if (!configOk || !isAuthenticated || !userId || !activeBoardId) return null;
     const newTransaction: Transaction = { ...transactionData, id: uuidv4() };
-     let resultTransaction: Transaction | null = null;
-    await modifyActiveBoard(board => {
-        const updatedTransactions = [...board.transactions, newTransaction];
-        resultTransaction = newTransaction;
-        return { transactions: JSON.stringify(updatedTransactions) };
-    });
-    if (resultTransaction) {
-         toast({ title: "Transaktion Tillagd", description: `"${newTransaction.title}" har lagts till.` });
+    const success = await modifyActiveBoardArrayField('transactions', current => [...current, newTransaction]);
+    if (success) {
+      toast({ title: "Transaktion Tillagd", description: `"${newTransaction.title}" har lagts till.` });
+      return newTransaction;
     }
-    return resultTransaction;
-  }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
+    return null;
+  }, [modifyActiveBoardArrayField, toast]);
 
   const updateTransactionInActiveBoard = useCallback(async (updatedTransaction: Transaction): Promise<Transaction | null> => {
-     if (!configOk || !isAuthenticated || !userId || !activeBoardId) return null;
-     let resultTransaction: Transaction | null = null;
-     await modifyActiveBoard(board => {
-        const updatedTransactions = board.transactions.map(t =>
-            t.id === updatedTransaction.id ? updatedTransaction : t
-        );
-        resultTransaction = updatedTransaction;
-        return { transactions: JSON.stringify(updatedTransactions) };
-     });
-      if (resultTransaction) {
-         toast({ title: "Transaktion Uppdaterad", description: `"${updatedTransaction.title}" har uppdaterats.` });
-     }
-     return resultTransaction;
-  }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
+    const success = await modifyActiveBoardArrayField('transactions', current =>
+      current.map(t => (t.id === updatedTransaction.id ? updatedTransaction : t))
+    );
+    if (success) {
+      toast({ title: "Transaktion Uppdaterad", description: `"${updatedTransaction.title}" har uppdaterats.` });
+      return updatedTransaction;
+    }
+    return null;
+  }, [modifyActiveBoardArrayField, toast]);
 
   const deleteTransactionFromActiveBoard = useCallback(async (transactionId: string) => {
-     if (!configOk || !isAuthenticated || !userId || !activeBoardId) return;
      let transactionTitle = '';
-     await modifyActiveBoard(board => {
-        const txToDelete = board.transactions.find(t => t.id === transactionId);
-        transactionTitle = txToDelete?.title || transactionId;
-        const updatedTransactions = board.transactions.filter(t => t.id !== transactionId);
-        return { transactions: JSON.stringify(updatedTransactions) };
-     });
-      toast({ title: "Transaktion Raderad", description: `"${transactionTitle}" har tagits bort.` });
-  }, [isAuthenticated, userId, activeBoardId, modifyActiveBoard, toast]);
+     const board = boards.find(b => b.id === activeBoardId);
+     const txToDelete = board?.transactions.find(t => t.id === transactionId);
+     transactionTitle = txToDelete?.title || transactionId;
 
+    const success = await modifyActiveBoardArrayField('transactions', current => current.filter(t => t.id !== transactionId));
+     if (success) {
+        toast({ title: "Transaktion Raderad", description: `"${transactionTitle}" har tagits bort.` });
+     }
+  }, [modifyActiveBoardArrayField, toast, boards, activeBoardId]);
 
- // --- Sharing (Placeholder/Mock - Requires backend/permissions setup in Appwrite) ---
-  const shareBoard = useCallback(async (boardId: string, email: string) => {
-     if (!configOk || !isAuthenticated || !userId) return;
-      // Appwrite sharing involves setting document permissions, which is complex and usually requires backend logic or careful client-side permission setup.
-      // This mock implementation just updates the 'sharedWith' array optimistically.
-     console.warn("Appwrite sharing logic not fully implemented. Mocking sharedWith update.");
-     toast({ title: "Delning (Demo)", description: `Tavlan skulle delas med ${email}. Kräver Appwrite permissions-setup.`, variant: "default" });
+  const shareBoard = useCallback(async (boardId: string, emailToShareWith: string) => {
+    // This is complex with Firestore and requires proper security rules.
+    // Simple implementation: add email to 'sharedWith' array.
+    // For actual access control, Firestore security rules must check this array.
+    if (!isAuthenticated || !userId) return;
+    const boardDocRef = doc(db, 'boards', boardId);
+    try {
+      // In a real app, you'd likely query for the user with 'emailToShareWith' to get their UID.
+      // For this example, we'll just store the email. Security rules would be needed.
+      await updateDoc(boardDocRef, {
+        sharedWith: arrayUnion(emailToShareWith) // Adds email if not already present
+      });
+      toast({ title: "Tavla Delad (E-post)", description: `Försökte dela med ${emailToShareWith}. Faktisk åtkomst styrs av säkerhetsregler.` });
+    } catch (e) {
+      console.error("Firebase: Failed to share board:", e);
+      toast({ title: "Fel", description: "Kunde inte dela tavlan.", variant: "destructive" });
+    }
+  }, [isAuthenticated, userId, toast]);
 
-     await modifyActiveBoard(board => {
-         // Ensure sharedWith is always an array before spreading
-         const currentSharedWith = Array.isArray(board.sharedWith) ? board.sharedWith : [];
-         if (!currentSharedWith.includes(email)) {
-             const updatedSharedWith = [...currentSharedWith, email];
-             return { sharedWith: JSON.stringify(updatedSharedWith) };
-         }
-         return null; // No change needed if already shared
-     });
-  }, [isAuthenticated, userId, modifyActiveBoard, toast]);
+  const unshareBoard = useCallback(async (boardId: string, emailToUnshare: string) => {
+    if (!isAuthenticated || !userId) return;
+    const boardDocRef = doc(db, 'boards', boardId);
+    try {
+      await updateDoc(boardDocRef, {
+        sharedWith: arrayRemove(emailToUnshare) // Removes all instances of email
+      });
+      toast({ title: "Delning Borttagen (E-post)", description: `Slutade dela med ${emailToUnshare}.` });
+    } catch (e) {
+      console.error("Firebase: Failed to unshare board:", e);
+      toast({ title: "Fel", description: "Kunde inte ta bort delning.", variant: "destructive" });
+    }
+  }, [isAuthenticated, userId, toast]);
 
-  const unshareBoard = useCallback(async (boardId: string, email: string) => {
-     if (!configOk || !isAuthenticated || !userId) return;
-     console.warn("Appwrite unsharing logic not fully implemented. Mocking sharedWith update.");
-      toast({ title: "Avdelning (Demo)", description: `Delning med ${email} skulle tas bort. Kräver Appwrite permissions-setup.`, variant: "default" });
-
-     await modifyActiveBoard(board => {
-         const currentSharedWith = Array.isArray(board.sharedWith) ? board.sharedWith : [];
-         const updatedSharedWith = currentSharedWith.filter(e => e !== email);
-          // Only return update data if the array actually changed
-         if (updatedSharedWith.length !== currentSharedWith.length) {
-            return { sharedWith: JSON.stringify(updatedSharedWith) };
-         }
-         return null; // No change needed
-     });
-  }, [isAuthenticated, userId, modifyActiveBoard, toast]);
-
-
-  // --- Context Value ---
   const activeBoard = boards.find(b => b.id === activeBoardId) || null;
   const combinedIsLoading = isLoadingAuth || internalIsLoadingBoards;
 
@@ -533,5 +372,3 @@ export function useBoards() {
   }
   return context;
 }
-
-    

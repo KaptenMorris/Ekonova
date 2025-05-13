@@ -1,6 +1,6 @@
 
 export interface Transaction {
-  id: string; // Keep client-side ID for keys, map from $id on fetch/save if needed
+  id: string;
   title: string;
   amount: number;
   date: string; // ISO string format
@@ -9,23 +9,22 @@ export interface Transaction {
 }
 
 export interface Category {
-  id: string; // Client-side ID
+  id: string;
   name: string;
   type: 'income' | 'expense';
   icon?: string; // Lucide icon name string
 }
 
 export interface Board {
-  id: string; // Corresponds to Appwrite $id
-  userId: string; // Foreign key to Appwrite user
+  id: string; // Corresponds to Firestore document ID
+  userId: string; // Foreign key to Firebase Auth user UID
   name: string;
-  categories: Category[]; // Still store parsed objects client-side
-  transactions: Transaction[]; // Still store parsed objects client-side
-  createdAt: string; // Corresponds to Appwrite $createdAt
-  sharedWith?: string[]; // Store parsed array client-side
+  categories: Category[]; // Stored as an array of objects in Firestore
+  transactions: Transaction[]; // Stored as an array of objects in Firestore
+  createdAt: string; // ISO string, converted from Firestore Timestamp
+  sharedWith?: string[]; // Array of user UIDs or emails (depending on sharing strategy)
 }
 
-// AI Suggestion types from the existing flow
 export type AISuggestion = {
   category: string;
   adjustment: string;
@@ -36,13 +35,13 @@ export type AISuggestionsOutput = {
 };
 
 export interface Bill {
-  id: string; // Corresponds to Appwrite $id
-  userId: string; // Foreign key to Appwrite user
+  id: string; // Corresponds to Firestore document ID
+  userId: string; // Foreign key to Firebase Auth user UID
   title: string;
   amount: number;
   dueDate: string; // ISO string format
   isPaid: boolean;
-  paidDate?: string | null; // ISO string format, use null for Appwrite compatibility
+  paidDate?: string | null; // ISO string format
   notes?: string;
-  categoryId: string; // Category for the bill expense
+  categoryId: string;
 }
