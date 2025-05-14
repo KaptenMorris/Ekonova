@@ -33,10 +33,8 @@ export default function LoginPage() {
 
   const handleResendVerification = async () => {
       setIsSubmitting(true);
-      // We need the email the user tried to log in with
-      await resendVerification(); // This now uses Appwrite and shows its own toast
+      await resendVerification(); // This now uses Firebase and shows its own toast
       setIsSubmitting(false);
-      // Keep the prompt visible or hide it after resend? Let's keep it for now.
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -56,15 +54,17 @@ export default function LoginPage() {
 
     if (!result.success) {
       let description = "Kontrollera dina uppgifter och försök igen.";
-      // Specific error handling based on Appwrite results
-      if (result.errorKey === 'account_deleted') { // This key needs to be mapped if Appwrite provides it
+      if (result.errorKey === 'account_deleted') {
         description = "Detta konto har raderats. Registrera dig på nytt för att använda tjänsten.";
       } else if (result.errorKey === 'account_not_verified') {
         description = "Ditt konto är inte verifierat. Kontrollera din e-post för verifieringslänken eller begär en ny.";
         setShowVerificationPrompt(true); // Show resend option
       } else if (result.errorKey === 'invalid_credentials') {
          description = "Felaktig e-postadress eller lösenord.";
+      } else if (result.errorKey === 'config_error') {
+        description = "Ett konfigurationsfel uppstod. Kontakta support om problemet kvarstår."
       }
+
 
       toast({
         title: "Inloggning Misslyckad",
@@ -72,10 +72,9 @@ export default function LoginPage() {
         variant: "destructive",
       });
     }
-    // Successful login and redirection is handled by the login function itself if successful
+    // Successful login and redirection is handled by the login function itself if successful, or by useEffect
   };
 
-  // Show loading indicator while checking auth status or if already authenticated (during redirect)
   if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-secondary/50">
@@ -88,15 +87,15 @@ export default function LoginPage() {
   return (
     <div
       className="flex min-h-screen flex-col items-center justify-center bg-cover bg-center bg-no-repeat p-4"
-      style={{ backgroundImage: "url('https://picsum.photos/1920/1080')" }}
+      style={{ backgroundImage: "url('https://placehold.co/1920x1080.png')" }}
       data-ai-hint="abstract background"
     >
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"></div> {/* Overlay for better readability */}
-      <div className="relative z-10 flex flex-col items-center"> {/* Content wrapper */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+      <div className="relative z-10 flex flex-col items-center">
         <div className="mb-8">
           <Logo iconSize={48} textSize="text-5xl" />
         </div>
-        <Card className="w-full max-w-md shadow-xl bg-card/80 backdrop-blur-md"> {/* Semi-transparent card */}
+        <Card className="w-full max-w-md shadow-xl bg-card/80 backdrop-blur-md">
           <CardHeader className="text-center">
             <CardTitle className="text-3xl font-bold text-primary">Välkommen Tillbaka!</CardTitle>
             <CardDescription>Logga in för att hantera din ekonomi med Ekonova.</CardDescription>
