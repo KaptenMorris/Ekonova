@@ -13,7 +13,7 @@ const firebaseStorageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
 const firebaseMessagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
 const firebaseAppId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
 const firebaseMeasurementId = process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID; // Optional
-const firebaseDatabaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL; // Important for some configurations
+const firebaseDatabaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL; // Crucial for specific Firestore regions
 
 // Define which environment variables are absolutely necessary
 const requiredEnvVars = {
@@ -23,7 +23,7 @@ const requiredEnvVars = {
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: firebaseStorageBucket,
   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: firebaseMessagingSenderId,
   NEXT_PUBLIC_FIREBASE_APP_ID: firebaseAppId,
-  NEXT_PUBLIC_FIREBASE_DATABASE_URL: firebaseDatabaseURL
+  NEXT_PUBLIC_FIREBASE_DATABASE_URL: firebaseDatabaseURL, // Making this required for clarity with Firestore
 };
 
 let firebaseConfigIsValid = true;
@@ -44,13 +44,6 @@ for (const [key, value] of Object.entries(requiredEnvVars)) {
   }
 }
 
-if (!firebaseDatabaseURL) {
-    console.warn(
-      `Firebase Configuration Warning: NEXT_PUBLIC_FIREBASE_DATABASE_URL is not set. This is often required for Realtime Database and can be important for Firestore in specific regions. If you encounter issues, ensure this is correctly set to your project's database URL (e.g. https://<YOUR_PROJECT_ID>.firebaseio.com or https://<YOUR_PROJECT_ID>.europe-west1.firebasedatabase.app).`
-    );
-}
-
-
 if (!firebaseConfigIsValid) {
   console.error("CRITICAL: Firebase initialization will be SKIPPED due to missing or placeholder values in environment variables. App functionality relying on Firebase will be affected. Ensure all NEXT_PUBLIC_FIREBASE_... variables are correctly set in .env.local and the server has been restarted.");
 }
@@ -64,8 +57,8 @@ const firebaseConfig = {
   storageBucket: firebaseStorageBucket,
   messagingSenderId: firebaseMessagingSenderId,
   appId: firebaseAppId,
-  measurementId: firebaseMeasurementId,
-  databaseURL: firebaseDatabaseURL,
+  measurementId: firebaseMeasurementId, // Optional, can be undefined
+  databaseURL: firebaseDatabaseURL, // Crucial for specific Firestore regions
 };
 
 let app: FirebaseApp = {} as FirebaseApp;
@@ -82,7 +75,7 @@ if (firebaseConfigIsValid) {
     messagingSenderId: firebaseConfig.messagingSenderId || 'NOT SET or invalid',
     appId: firebaseConfig.appId || 'NOT SET or invalid',
     measurementId: firebaseConfig.measurementId || 'NOT SET (Optional)',
-    databaseURL: firebaseConfig.databaseURL || 'NOT SET (Recommended)',
+    databaseURL: firebaseConfig.databaseURL || 'NOT SET or invalid (Required for Firestore)',
   });
 
   if (!getApps().length) {
@@ -104,7 +97,7 @@ if (firebaseConfigIsValid) {
       console.log("Firebase Auth service initialized.");
     } catch (e: any) {
       console.error("Firebase Auth Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
-      firebaseConfigIsValid = false;
+      // No need to set firebaseConfigIsValid = false here again, as auth might be optional for some parts
     }
 
     try {
@@ -112,7 +105,7 @@ if (firebaseConfigIsValid) {
       console.log("Firebase Firestore service initialized.");
     } catch (e: any) {
       console.error("Firebase Firestore Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
-      firebaseConfigIsValid = false;
+      firebaseConfigIsValid = false; // If Firestore fails, and it's needed, this is critical
     }
 
     try {
@@ -120,17 +113,19 @@ if (firebaseConfigIsValid) {
       console.log("Firebase Storage service initialized.");
     } catch (e: any) {
       console.error("Firebase Storage Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
+      // Storage might be optional
     }
-  } else if (firebaseConfigIsValid) {
+  } else if (firebaseConfigIsValid) { // Only if config was initially thought to be valid
     console.error("Firebase app object is not available or valid after initialization attempt, despite initial config seeming valid. Firebase services will not be initialized.");
     firebaseConfigIsValid = false;
   }
 }
 
 if (!firebaseConfigIsValid) {
-  console.warn("CRITICAL WARNING: Firebase SDKs (auth, db, storage) are NOT correctly initialized due to configuration or initialization errors. Check .env.local, Firebase project settings, and restart the server. App functionality relying on Firebase WILL BE IMPACTED.");
-  authInstance = authInstance || {};
-  dbInstance = dbInstance || {};
+  console.warn("CRITICAL WARNING: Firebase SDKs (especially Firestore if it's the goal) are NOT correctly initialized due to configuration or initialization errors. Check .env.local, Firebase project settings, and restart the server. App functionality relying on Firebase WILL BE IMPACTED.");
+  // Ensure exported services are indeed empty or throw if config is invalid and they are accessed
+  authInstance = authInstance || {}; // Keep as empty object if it failed but app should limp along
+  dbInstance = dbInstance || {};     // Same for db
   storageInstance = storageInstance || {};
 }
 
