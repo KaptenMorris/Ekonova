@@ -13,6 +13,7 @@ export interface Category {
   name: string;
   type: 'income' | 'expense';
   icon?: string; // Lucide icon name string
+  order: number; // For reordering categories
 }
 
 export interface Board {

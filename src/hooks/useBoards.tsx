@@ -36,8 +36,9 @@ interface BoardsContextType {
   deleteBoard: (boardId: string) => Promise<void>;
   shareBoard: (boardId: string, emailToShareWith: string) => Promise<void>; // Email for simplicity, UID is better
   unshareBoard: (boardId: string, emailToUnshare: string) => Promise<void>;
-  addCategoryToActiveBoard: (categoryData: Omit<Category, 'id'>) => Promise<Category | null>;
+  addCategoryToActiveBoard: (categoryData: Omit<Category, 'id' | 'order'>) => Promise<Category | null>;
   deleteCategoryFromActiveBoard: (categoryId: string) => Promise<void>;
+  updateCategoryOrderInActiveBoard: (categoryId: string, direction: 'up' | 'down') => Promise<void>;
   addTransactionToActiveBoard: (transactionData: Omit<Transaction, 'id'>) => Promise<Transaction | null>;
   updateTransactionInActiveBoard: (updatedTransaction: Transaction) => Promise<Transaction | null>;
   deleteTransactionFromActiveBoard: (transactionId: string) => Promise<void>;
@@ -53,11 +54,17 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const [internalIsLoadingBoards, setInternalIsLoadingBoards] = useState(true);
 
   const mapFirestoreDocToBoard = (docData: any, id: string): Board => {
+    const categoriesFromDoc = Array.isArray(docData.categories) ? docData.categories : [];
+    const mappedCategories = categoriesFromDoc.map((c, index) => ({
+      ...c,
+      order: typeof c.order === 'number' ? c.order : index, // Assign order if missing, based on array index
+    }));
+
     return {
       id: id,
       userId: docData.userId,
       name: docData.name,
-      categories: Array.isArray(docData.categories) ? docData.categories.map(c => ({...c})) : [],
+      categories: mappedCategories,
       transactions: Array.isArray(docData.transactions) ? docData.transactions.map(t => ({
         ...t,
         date: t.date instanceof Timestamp ? t.date.toDate().toISOString() : t.date,
@@ -82,7 +89,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const createDefaultBoardIfNeeded = useCallback(async (currentBoards: Board[]): Promise<Board | null> => {
     if (currentBoards.length === 0 && userId && isAuthenticated) {
       const newCategories = INITIAL_BOARD_CATEGORY_TEMPLATES.map(template => ({
-        ...template,
+        ...template, // template already includes order
         id: uuidv4(),
       }));
       const newBoardData = {
@@ -95,9 +102,8 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       };
       try {
         const docRef = await addDoc(collection(db, 'boards'), newBoardData);
-        // Don't map serverTimestamp() immediately, let onSnapshot pick up the resolved value.
-        const newBoardForState = { ...newBoardData, id: docRef.id, createdAt: new Date().toISOString() }; // Temp for local state
-        setBoards([newBoardForState]); // Update local state immediately for responsiveness
+        const newBoardForState = { ...newBoardData, id: docRef.id, createdAt: new Date().toISOString(), categories: newCategories }; 
+        setBoards([newBoardForState]); 
         setActiveBoardIdInternal(docRef.id);
         return newBoardForState;
       } catch (e) {
@@ -114,18 +120,14 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated || !userId || isLoadingAuth) {
       setBoards([]);
       setActiveBoardIdState(null);
-      setInternalIsLoadingBoards(!isLoadingAuth); // True if auth is still loading, false otherwise
+      setInternalIsLoadingBoards(!isLoadingAuth); 
       return;
     }
 
     setInternalIsLoadingBoards(true);
     const boardsCollectionRef = collection(db, 'boards');
-    // Query for boards owned by the user OR shared with the user (by email for now)
-    // This requires composite indexes in Firestore if you query on multiple array fields
-    // For simplicity, we'll start with just owned boards. Sharing query needs more setup.
     const q = query(boardsCollectionRef, where('userId', '==', userId));
-    // TODO: Add query for sharedWith array-contains currentUserEmail if implementing sharing that way
-
+    
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedBoards: Board[] = [];
       querySnapshot.forEach((doc) => {
@@ -134,15 +136,17 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       setBoards(fetchedBoards);
 
       if (fetchedBoards.length === 0) {
-        createDefaultBoardIfNeeded(fetchedBoards); // Will set active board if created
+        createDefaultBoardIfNeeded(fetchedBoards); 
       } else {
         const activeIdKey = `ekonova-active-board-id-${userId}`;
         const storedActiveId = typeof window !== 'undefined' ? localStorage.getItem(activeIdKey) : null;
         if (storedActiveId && fetchedBoards.some(b => b.id === storedActiveId)) {
           setActiveBoardIdState(storedActiveId);
-        } else {
+        } else if (fetchedBoards.length > 0) { // ensure fetchedBoards is not empty
           setActiveBoardIdState(fetchedBoards[0].id);
           if (typeof window !== 'undefined') localStorage.setItem(activeIdKey, fetchedBoards[0].id);
+        } else {
+          setActiveBoardIdState(null); // No boards, no active ID
         }
       }
       setInternalIsLoadingBoards(false);
@@ -163,7 +167,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     }
     setInternalIsLoadingBoards(true);
     const newCategories = INITIAL_BOARD_CATEGORY_TEMPLATES.map(template => ({
-      ...template,
+      ...template, // template already includes order
       id: uuidv4(),
     }));
     const newBoardData = {
@@ -176,11 +180,9 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     };
     try {
       const docRef = await addDoc(collection(db, 'boards'), newBoardData);
-      // onSnapshot will update, but for immediate feedback, we can set active board
       setActiveBoardIdInternal(docRef.id);
       toast({ title: "Tavla Skapad", description: `Tavlan "${name}" har skapats.` });
-      // Return the conceptual new board; actual data comes from onSnapshot
-      return { ...newBoardData, id: docRef.id, createdAt: new Date().toISOString() }; // Temp createdAt for return
+      return { ...newBoardData, id: docRef.id, createdAt: new Date().toISOString(), categories: newCategories }; 
     } catch (e) {
       console.error("Firebase: Failed to add board:", e);
       toast({ title: "Fel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
@@ -210,12 +212,12 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       await deleteDoc(boardDocRef);
       toast({ title: "Tavla Raderad", description: `Tavlan "${boardToDelete?.name || boardId}" har raderats.` });
       if (activeBoardId === boardId) {
-          const remainingBoards = boards.filter(b => b.id !== boardId); // Use current local state for immediate update
+          const remainingBoards = boards.filter(b => b.id !== boardId); 
           if (remainingBoards.length > 0) {
               setActiveBoardIdInternal(remainingBoards[0].id);
           } else {
               setActiveBoardIdInternal(null);
-              await createDefaultBoardIfNeeded([]); // Create new default if all are gone
+              await createDefaultBoardIfNeeded([]); 
           }
       }
     } catch (e) {
@@ -246,26 +248,39 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, userId, activeBoardId, boards, toast]);
 
-  const addCategoryToActiveBoard = useCallback(async (categoryData: Omit<Category, 'id'>): Promise<Category | null> => {
-    const newCategory: Category = { ...categoryData, id: uuidv4(), icon: categoryData.icon || 'Archive' };
+  const addCategoryToActiveBoard = useCallback(async (categoryData: Omit<Category, 'id' | 'order'>): Promise<Category | null> => {
+    const currentBoard = boards.find(b => b.id === activeBoardId);
+    if (!currentBoard) return null;
+
+    const categoriesOfType = currentBoard.categories.filter(c => c.type === categoryData.type);
+    const maxOrder = categoriesOfType.reduce((max, cat) => Math.max(max, cat.order), -1);
+
+    const newCategory: Category = {
+      ...categoryData,
+      id: uuidv4(),
+      icon: categoryData.icon || 'Archive',
+      order: maxOrder + 1,
+    };
     const success = await modifyActiveBoardArrayField('categories', current => [...current, newCategory]);
     if (success) {
       toast({ title: "Kategori Tillagd", description: `"${newCategory.name}" har lagts till.` });
       return newCategory;
     }
     return null;
-  }, [modifyActiveBoardArrayField, toast]);
+  }, [modifyActiveBoardArrayField, toast, boards, activeBoardId]);
 
   const deleteCategoryFromActiveBoard = useCallback(async (categoryId: string) => {
+    if (!activeBoardId) return;
     const board = boards.find(b => b.id === activeBoardId);
-    const catToDelete = board?.categories.find(c => c.id === categoryId);
+    if (!board) return;
+    const catToDelete = board.categories.find(c => c.id === categoryId);
     const categoryName = catToDelete?.name || categoryId;
 
     const batch = writeBatch(db);
-    const boardDocRef = doc(db, 'boards', activeBoardId!);
+    const boardDocRef = doc(db, 'boards', activeBoardId);
 
-    const updatedCategories = board?.categories.filter(c => c.id !== categoryId) || [];
-    const updatedTransactions = board?.transactions.filter(t => t.categoryId !== categoryId) || [];
+    const updatedCategories = board.categories.filter(c => c.id !== categoryId);
+    const updatedTransactions = board.transactions.filter(t => t.categoryId !== categoryId);
     
     batch.update(boardDocRef, { categories: updatedCategories, transactions: updatedTransactions });
 
@@ -278,11 +293,63 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     }
   }, [activeBoardId, boards, toast]);
 
+  const updateCategoryOrderInActiveBoard = useCallback(async (categoryId: string, direction: 'up' | 'down') => {
+    if (!isAuthenticated || !userId || !activeBoardId) return;
+
+    const boardDocRef = doc(db, 'boards', activeBoardId);
+    const currentBoard = boards.find(b => b.id === activeBoardId);
+    if (!currentBoard) return;
+
+    const sourceCategoryGlobalIndex = currentBoard.categories.findIndex(c => c.id === categoryId);
+    if (sourceCategoryGlobalIndex === -1) return;
+
+    const sourceCategory = currentBoard.categories[sourceCategoryGlobalIndex];
+    
+    let categoriesOfType = currentBoard.categories
+      .filter(c => c.type === sourceCategory.type)
+      .sort((a, b) => a.order - b.order);
+
+    const currentIndexInTypedList = categoriesOfType.findIndex(c => c.id === categoryId);
+
+    let targetCategoryInTypedList: Category | undefined;
+
+    if (direction === 'up') {
+      if (currentIndexInTypedList === 0) return; 
+      targetCategoryInTypedList = categoriesOfType[currentIndexInTypedList - 1];
+    } else { 
+      if (currentIndexInTypedList === categoriesOfType.length - 1) return; 
+      targetCategoryInTypedList = categoriesOfType[currentIndexInTypedList + 1];
+    }
+
+    if (!targetCategoryInTypedList) return;
+
+    const finalTargetCategory = currentBoard.categories.find(c => c.id === targetCategoryInTypedList!.id);
+    if(!finalTargetCategory) return;
+
+    const updatedAllCategories = currentBoard.categories.map(cat => {
+      if (cat.id === sourceCategory.id) {
+        return { ...cat, order: finalTargetCategory.order };
+      }
+      if (cat.id === finalTargetCategory.id) {
+        return { ...cat, order: sourceCategory.order };
+      }
+      return cat;
+    });
+
+    try {
+      await updateDoc(boardDocRef, { categories: updatedAllCategories });
+    } catch (e) {
+      console.error(`Firebase: Failed to update category order:`, e);
+      toast({ title: "Fel", description: "Kunde inte uppdatera kategoriernas ordning.", variant: "destructive" });
+    }
+
+  }, [isAuthenticated, userId, activeBoardId, boards, toast]);
+
   const addTransactionToActiveBoard = useCallback(async (transactionData: Omit<Transaction, 'id'>): Promise<Transaction | null> => {
     const newTransaction: Transaction = {
       ...transactionData,
       id: uuidv4(),
-      date: new Date(transactionData.date).toISOString(), // Ensure ISO string format
+      date: new Date(transactionData.date).toISOString(), 
     };
     const success = await modifyActiveBoardArrayField('transactions', current => [...current, newTransaction]);
     if (success) {
@@ -308,6 +375,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [modifyActiveBoardArrayField, toast]);
 
   const deleteTransactionFromActiveBoard = useCallback(async (transactionId: string) => {
+     if (!activeBoardId) return;
      const board = boards.find(b => b.id === activeBoardId);
      const txToDelete = board?.transactions.find(t => t.id === transactionId);
      const transactionTitle = txToDelete?.title || transactionId;
@@ -322,8 +390,6 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated || !userId) return;
     const boardDocRef = doc(db, 'boards', boardId);
     try {
-      // In a real app, you'd query for user by email to get their UID, then add UID.
-      // For simplicity, storing email directly, but Firestore rules would need to handle this.
       await updateDoc(boardDocRef, { sharedWith: arrayUnion(emailToShareWith) });
       toast({ title: "Tavla Delad", description: `Försökte dela med ${emailToShareWith}. Åtkomst styrs av säkerhetsregler.` });
     } catch (e) {
@@ -360,6 +426,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     unshareBoard,
     addCategoryToActiveBoard,
     deleteCategoryFromActiveBoard,
+    updateCategoryOrderInActiveBoard,
     addTransactionToActiveBoard,
     updateTransactionInActiveBoard,
     deleteTransactionFromActiveBoard,

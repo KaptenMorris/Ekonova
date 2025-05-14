@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Category, Transaction } from "@/types";
@@ -35,6 +36,7 @@ export function BoardView() {
     isLoadingBoards,
     addCategoryToActiveBoard, 
     deleteCategoryFromActiveBoard,
+    updateCategoryOrderInActiveBoard, // Get the new function
     addTransactionToActiveBoard,
     updateTransactionInActiveBoard,
     deleteTransactionFromActiveBoard
@@ -66,10 +68,11 @@ export function BoardView() {
 
   const handleAddCategory = () => {
     if (newCategoryName.trim() === "") return;
+    // Pass Omit<Category, 'id' | 'order'>
     addCategoryToActiveBoard({
       name: newCategoryName,
       type: newCategoryType,
-      // icon: "Package" // Default icon handled by constants or let user choose later
+      icon: "Archive" // Default icon, order will be assigned in useBoards
     });
     setNewCategoryName("");
     setNewCategoryType("expense"); // Reset to default
@@ -83,8 +86,13 @@ export function BoardView() {
   const categories = useMemo(() => activeBoard?.categories || [], [activeBoard]);
   const transactions = useMemo(() => activeBoard?.transactions || [], [activeBoard]);
 
-  const incomeCategories = useMemo(() => categories.filter(c => c.type === 'income'), [categories]);
-  const expenseCategories = useMemo(() => categories.filter(c => c.type === 'expense'), [categories]);
+  // Sort categories by their order property
+  const incomeCategories = useMemo(() => 
+    categories.filter(c => c.type === 'income').sort((a, b) => a.order - b.order), 
+  [categories]);
+  const expenseCategories = useMemo(() => 
+    categories.filter(c => c.type === 'expense').sort((a, b) => a.order - b.order), 
+  [categories]);
 
   if (isLoadingBoards) {
     return (
@@ -170,7 +178,7 @@ export function BoardView() {
             </Alert>
         ) : (
         <div className="flex min-w-max gap-4">
-          {incomeCategories.map((category) => (
+          {incomeCategories.map((category, index) => (
             <CategoryColumn
               key={category.id}
               category={category}
@@ -178,9 +186,12 @@ export function BoardView() {
               onEditTransaction={openEditModal}
               onDeleteTransaction={handleDeleteTransaction}
               onDeleteCategory={handleDeleteCategory}
+              onUpdateCategoryOrder={updateCategoryOrderInActiveBoard}
+              isFirstInCategoryType={index === 0}
+              isLastInCategoryType={index === incomeCategories.length - 1}
             />
           ))}
-          {expenseCategories.map((category) => (
+          {expenseCategories.map((category, index) => (
             <CategoryColumn
               key={category.id}
               category={category}
@@ -188,6 +199,9 @@ export function BoardView() {
               onEditTransaction={openEditModal}
               onDeleteTransaction={handleDeleteTransaction}
               onDeleteCategory={handleDeleteCategory}
+              onUpdateCategoryOrder={updateCategoryOrderInActiveBoard}
+              isFirstInCategoryType={index === 0}
+              isLastInCategoryType={index === expenseCategories.length - 1}
             />
           ))}
         </div>
