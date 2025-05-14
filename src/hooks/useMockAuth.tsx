@@ -24,8 +24,8 @@ import {
   reauthenticateWithCredential,
   EmailAuthProvider
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase'; // Import Firebase services
+import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { auth, db, firebaseConfigIsValid } from '@/lib/firebase'; // Import Firebase services
 import { useToast } from './use-toast';
 
 // User data structure stored in Firestore
@@ -83,6 +83,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   useEffect(() => {
+    if (!firebaseConfigIsValid) {
+      setIsLoading(false);
+      // Optionally, show a persistent error message if Firebase config is invalid
+      console.error("Firebase is not configured correctly. Authentication and database features will not work.");
+      return;
+    }
+
     setIsLoading(true);
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
@@ -91,7 +98,11 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         try {
           const userDocSnap = await getDoc(userDocRef);
           if (userDocSnap.exists()) {
-            setUserProfile(userDocSnap.data() as UserProfile);
+            const profileData = userDocSnap.data();
+            setUserProfile({
+              ...profileData,
+              createdAt: profileData.createdAt instanceof Timestamp ? profileData.createdAt.toDate().toISOString() : profileData.createdAt,
+            } as UserProfile);
           } else {
             // If no profile doc, create one (e.g., if user was created but profile step failed)
             const newProfile: UserProfile = {
@@ -102,7 +113,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
               createdAt: serverTimestamp(),
             };
             await setDoc(userDocRef, newProfile, { merge: true });
-            setUserProfile(newProfile);
+            setUserProfile({...newProfile, createdAt: new Date().toISOString()}); // temp createdAt for local state
           }
         } catch (error) {
           console.error("Error fetching/creating user profile:", error);
@@ -118,18 +129,30 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
 
   const login = useCallback(async (email?: string, password?: string): Promise<LoginResult> => {
+    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     if (!email || !password) return { success: false, errorKey: 'invalid_credentials' };
+    
     setIsLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // User is signed in, now check email verification
+      // onAuthStateChanged will update firebaseUser and userProfile state.
+      // We don't need to manually set them here.
+
       if (!userCredential.user.emailVerified) {
-        await signOut(auth);
+        // DO NOT SIGN OUT HERE. Let the user stay "technically" logged in
+        // so that auth.currentUser is available for resendVerification.
+        // The isAuthenticated check (firebaseUser && firebaseUser.emailVerified)
+        // will prevent access to protected routes.
         setIsLoading(false);
         return { success: false, errorKey: 'account_not_verified' };
       }
-      // onAuthStateChanged will handle setting user and profile
-      router.push('/dashboard');
+      
+      // If email is verified, onAuthStateChanged will set the user,
+      // and the useEffect in DashboardLayout or HomePage will redirect.
+      router.push('/dashboard'); // Or let redirection be handled by useEffect in layout
       return { success: true };
+
     } catch (e: any) {
       setIsLoading(false);
       console.error("Firebase login error:", e);
@@ -146,9 +169,11 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   const logout = useCallback(async () => {
+    if (!firebaseConfigIsValid) return;
     setIsLoading(true);
     try {
       await signOut(auth);
+      // onAuthStateChanged will clear firebaseUser and userProfile.
       router.push('/login');
     } catch (e) {
       console.error("Firebase logout error:", e);
@@ -159,7 +184,9 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [router, toast]);
 
   const signup = useCallback(async (email?: string, password?: string, name?: string): Promise<SignupResult> => {
+    if (!firebaseConfigIsValid) return { success: false, messageKey: 'config_error' };
     if (!email || !password || !name) return { success: false, messageKey: 'generic_error' };
+    
     setIsLoading(true);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -171,14 +198,18 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         uid: user.uid,
         email: user.email,
         name: name,
-        avatarUrl: null,
+        avatarUrl: null, // Or user.photoURL if available and desired initially
         createdAt: serverTimestamp(),
       };
       await setDoc(doc(db, 'users', user.uid), userProfileData);
+      // onAuthStateChanged will update local state (firebaseUser, userProfile)
 
       await sendEmailVerification(user);
       setIsLoading(false);
+      // User is technically logged in by Firebase, but email is not verified yet.
+      // UI should show verification message.
       return { success: true, messageKey: 'verification_sent' };
+
     } catch (e: any) {
       setIsLoading(false);
       console.error("Firebase signup error:", e);
@@ -190,8 +221,9 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
   const resendVerification = useCallback(async (): Promise<{ success: boolean; errorKey?: string }> => {
+    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     setIsLoading(true);
-    const currentUser = auth.currentUser; // Get current user at the time of call
+    const currentUser = auth.currentUser; 
     if (currentUser) {
       try {
         await sendEmailVerification(currentUser);
@@ -205,7 +237,6 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         return { success: false, errorKey: 'generic_error' };
       }
     } else {
-       // This case might happen if user clicked resend after session expired or on signup page before first login attempt
       toast({ title: "Ingen Användare", description: "Ingen användare är aktiv för att skicka om verifieringsmail. Försök logga in igen.", variant: "destructive" });
       setIsLoading(false);
       return { success: false, errorKey: 'generic_error' };
@@ -213,18 +244,23 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
   const deleteAccount = useCallback(async () => {
+    if (!firebaseConfigIsValid) return;
     setIsLoading(true);
-    if (auth.currentUser) {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
       try {
-        await deleteDoc(doc(db, 'users', auth.currentUser.uid));
-        await firebaseDeleteUser(auth.currentUser);
+        // Attempt to delete Firestore document first
+        await deleteDoc(doc(db, 'users', currentUser.uid));
+        // Then delete Firebase Auth user
+        await firebaseDeleteUser(currentUser);
+        // onAuthStateChanged will clear local state.
         router.push('/login');
         toast({ title: "Konto Raderat", description: "Ditt konto har raderats permanent." });
       } catch (e: any) {
         console.error("Firebase delete account error:", e);
         if (e.code === 'auth/requires-recent-login') {
           toast({ title: "Återautentisering Krävs", description: "Logga in igen och försök sedan radera kontot.", variant: "destructive" });
-          // Consider redirecting to login or showing a re-auth modal
+          // Consider redirecting to login or showing a re-auth modal for reauthentication
         } else {
           toast({ title: "Fel Vid Radering", description: "Kunde inte radera konto.", variant: "destructive" });
         }
@@ -238,11 +274,14 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [router, toast]);
 
   const changePassword = useCallback(async (newPassword?: string): Promise<ChangePasswordResult> => {
+    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     if (!newPassword) return { success: false, errorKey: 'generic_error' };
+    
     setIsLoading(true);
-    if (auth.currentUser) {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
       try {
-        await updatePassword(auth.currentUser, newPassword);
+        await updatePassword(currentUser, newPassword);
         setIsLoading(false);
         return { success: true };
       } catch (e: any) {
@@ -260,26 +299,26 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateProfilePicture = useCallback(async (imageDataUri: string): Promise<UpdateProfilePictureResult> => {
+    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     setIsLoading(true);
-    if (auth.currentUser) {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
       try {
-        // In a real app, upload imageDataUri to Firebase Storage, get downloadURL, then update profile.
-        // For simplicity, assuming imageDataUri is a direct URL or a base64 string suitable for photoURL.
-        await updateProfile(auth.currentUser, { photoURL: imageDataUri });
-
-        const userDocRef = doc(db, 'users', auth.currentUser.uid);
+        await updateProfile(currentUser, { photoURL: imageDataUri });
+        // Update Firestore profile as well
+        const userDocRef = doc(db, 'users', currentUser.uid);
         await setDoc(userDocRef, { avatarUrl: imageDataUri }, { merge: true });
 
+        // Update local state Optimistically or wait for onAuthStateChanged/onSnapshot
         setUserProfile(prev => prev ? { ...prev, avatarUrl: imageDataUri } : null);
-        // FirebaseUser state might also need an update if photoURL is directly used from it.
-        // This might require re-fetching the user or trusting onAuthStateChanged to pick it up.
+        // If firebaseUser's photoURL is directly used, it might need manual update or rely on onAuthStateChanged
+        // setFirebaseUser(prev => prev ? {...prev, photoURL: imageDataUri} : null); // This is tricky, Firebase manages this.
 
         setIsLoading(false);
         return { success: true };
       } catch (e: any) {
         setIsLoading(false);
         console.error("Firebase update profile picture error:", e);
-        // Handle storage errors if Firebase Storage is used
         return { success: false, errorKey: 'generic_error' };
       }
     } else {
@@ -287,10 +326,12 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       return { success: false, errorKey: 'generic_error' };
     }
   }, []);
+  
+  const isAuthenticatedResult = firebaseConfigIsValid && !!firebaseUser && !!firebaseUser.emailVerified;
 
   return (
     <AuthContext.Provider value={{
-      isAuthenticated: !!firebaseUser && !!firebaseUser.emailVerified, // Ensure email is verified
+      isAuthenticated: isAuthenticatedResult,
       currentUserEmail: firebaseUser?.email || null,
       currentUserName: userProfile?.name || firebaseUser?.displayName || null,
       currentUserAvatarUrl: userProfile?.avatarUrl || firebaseUser?.photoURL || null,
@@ -316,3 +357,4 @@ export function useAuth() {
   }
   return context;
 }
+
