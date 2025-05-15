@@ -17,13 +17,13 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { useAuth } from '@/hooks/useMockAuth'; // This will now use Firebase Auth
+import { useAuth } from '@/hooks/useMockAuth';
 import { useToast } from './use-toast';
 
 interface BillsContextType {
   bills: Bill[];
   isLoadingBills: boolean;
-  addBill: (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate' | 'userId'>) => Promise<Bill | null>;
+  addBill: (billData: Omit<Bill, 'id' | 'userId'>) => Promise<Bill | null>; // Updated signature
   toggleBillPaidStatus: (billId: string) => Promise<Bill | null>;
   deleteBill: (billId: string) => Promise<void>;
   updateBill: (updatedBillData: Bill) => Promise<Bill | null>;
@@ -74,7 +74,7 @@ export function BillProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, [isAuthenticated, userId, isLoadingAuth, toast]);
 
-  const addBill = useCallback(async (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate' | 'userId'>): Promise<Bill | null> => {
+  const addBill = useCallback(async (billData: Omit<Bill, 'id' | 'userId'>): Promise<Bill | null> => {
     if (!isAuthenticated || !userId) {
       toast({ title: "Åtkomst nekad", description: "Du måste vara inloggad.", variant: "destructive" });
       return null;
@@ -84,31 +84,35 @@ export function BillProvider({ children }: { children: ReactNode }) {
         return null;
     }
     setInternalIsLoadingBills(true);
+
+    // billData now contains isPaid and potentially paidDate (as string from client)
     const newBillDataForFirestore = {
-      ...billData,
+      ...billData, // Includes title, amount, dueDate (string), notes, categoryId, isPaid, paidDate (string|null)
       userId: userId,
-      isPaid: false,
-      paidDate: null,
       dueDate: Timestamp.fromDate(new Date(billData.dueDate)),
-      createdAt: serverTimestamp(), // Optional: for tracking creation
+      // Convert paidDate to Timestamp only if it exists and isPaid is true
+      paidDate: billData.isPaid && billData.paidDate ? Timestamp.fromDate(new Date(billData.paidDate)) : null,
+      createdAt: serverTimestamp(), 
     };
 
     try {
       const docRef = await addDoc(collection(db, 'bills'), newBillDataForFirestore);
       // Return the conceptual new bill; actual data comes from onSnapshot
+      // The returned bill should reflect what was intended to be saved, with dates as strings.
       return {
-        ...billData,
+        ...billData, // This includes isPaid and paidDate (as string from client)
         id: docRef.id,
         userId: userId,
-        isPaid: false,
-        paidDate: null,
+        // Ensure dueDate and paidDate are strings in the returned object for client consistency
+        dueDate: billData.dueDate, 
+        paidDate: billData.paidDate,
       };
     } catch (e) {
       console.error("Firebase: Failed to add bill:", e);
       toast({ title: "Fel", description: "Kunde inte lägga till räkningen.", variant: "destructive" });
       return null;
     } finally {
-      setInternalIsLoadingBills(false);
+      setInternalIsLoadingBills(false); // Or let onSnapshot handle this
     }
   }, [isAuthenticated, userId, toast]);
 
@@ -118,15 +122,20 @@ export function BillProvider({ children }: { children: ReactNode }) {
     if (!billToToggle) return null;
 
     const newPaidStatus = !billToToggle.isPaid;
+    const newPaidDate = newPaidStatus ? Timestamp.now() : null;
+    
     const updatedData = {
       isPaid: newPaidStatus,
-      paidDate: newPaidStatus ? Timestamp.now() : null,
+      paidDate: newPaidDate,
     };
     const billDocRef = doc(db, 'bills', billId);
     try {
       await updateDoc(billDocRef, updatedData);
-      // Return conceptual updated bill
-      return { ...billToToggle, ...updatedData, paidDate: updatedData.paidDate ? updatedData.paidDate.toDate().toISOString() : null };
+      return { 
+        ...billToToggle, 
+        isPaid: newPaidStatus, 
+        paidDate: newPaidDate ? newPaidDate.toDate().toISOString() : null 
+      };
     } catch (e) {
       console.error("Firebase: Failed to toggle bill status:", e);
       toast({ title: "Fel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive" });
@@ -139,7 +148,6 @@ export function BillProvider({ children }: { children: ReactNode }) {
     const billDocRef = doc(db, 'bills', billId);
     try {
       await deleteDoc(billDocRef);
-      // Toast handled by caller
     } catch (e) {
       console.error("Firebase: Failed to delete bill:", e);
       toast({ title: "Fel", description: "Kunde inte radera räkningen.", variant: "destructive" });
@@ -148,20 +156,19 @@ export function BillProvider({ children }: { children: ReactNode }) {
 
   const updateBill = useCallback(async (updatedBillData: Bill): Promise<Bill | null> => {
     if (!isAuthenticated || !userId) return null;
-    const { id, userId: billUserId, ...dataToUpdate } = updatedBillData; // Exclude userId from update payload
+    const { id, userId: billUserId, ...dataToUpdate } = updatedBillData;
     const billDocRef = doc(db, 'bills', id);
 
-    const firestoreReadyData: Partial<Bill> & { dueDate: Timestamp, paidDate: Timestamp | null } = {
+    const firestoreReadyData: any = { // Use 'any' for flexibility or define a more specific type
         ...dataToUpdate,
         dueDate: Timestamp.fromDate(new Date(dataToUpdate.dueDate)),
-        paidDate: dataToUpdate.paidDate ? Timestamp.fromDate(new Date(dataToUpdate.paidDate)) : null,
+        paidDate: dataToUpdate.isPaid && dataToUpdate.paidDate ? Timestamp.fromDate(new Date(dataToUpdate.paidDate)) : null,
     };
-    // Remove fields that shouldn't be directly updated or are managed by server
-    delete (firestoreReadyData as any).id; // Ensure id is not in the update payload
+    delete firestoreReadyData.id; 
 
     try {
       await updateDoc(billDocRef, firestoreReadyData);
-      return updatedBillData; // Return the conceptual updated bill
+      return updatedBillData; 
     } catch (e) {
       console.error("Firebase: Failed to update bill:", e);
       toast({ title: "Fel", description: "Kunde inte uppdatera räkningen.", variant: "destructive" });

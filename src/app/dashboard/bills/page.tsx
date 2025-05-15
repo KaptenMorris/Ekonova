@@ -50,10 +50,43 @@ export default function BillsPage() {
     });
   }, [bills]);
 
-  const handleAddBill = (billData: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>) => {
-    const newBill = addBill(billData);
+  const handleAddBill = async (billSubmission: Omit<Bill, 'id' | 'userId'>) => {
+    const newBill = await addBill(billSubmission); // The hook now handles isPaid and paidDate
+
     if (newBill) {
       toast({ title: "Räkning Tillagd", description: `${newBill.title} har lagts till.`});
+
+      // If the bill was added as already paid, trigger transaction creation
+      if (newBill.isPaid && newBill.paidDate) {
+        if (!activeBoard) {
+          toast({ title: "Fel", description: "Ingen aktiv tavla vald för att bokföra den betalda räkningen.", variant: "destructive" });
+          return;
+        }
+        if (!newBill.categoryId) {
+           toast({ title: "Fel", description: "Kategori saknas för räkningen. Redigera räkningen och välj en kategori.", variant: "destructive" });
+           return;
+        }
+
+        const targetCategory = activeBoard.categories.find(c => c.id === newBill.categoryId && c.type === 'expense');
+        if (!targetCategory) {
+            toast({ title: "Fel", description: `Kategorin för räkningen "${newBill.categoryId}" hittades inte på tavlan "${activeBoard.name}". Skapa transaktionen manuellt.`, variant: "destructive" });
+            return;
+        }
+
+        const transactionAdded = addTransactionToActiveBoard({
+            title: newBill.title,
+            amount: newBill.amount,
+            date: newBill.paidDate, // Use the paidDate from the bill
+            categoryId: targetCategory.id,
+            description: `Automatisk transaktion från nyligen tillagd betald räkning: ${newBill.title} (ID: ${newBill.id})`,
+        });
+
+        if (transactionAdded) {
+            toast({ title: "Räkning Betald & Bokförd", description: `${newBill.title} har markerats som betald och en transaktion har skapats i kategorin "${targetCategory.name}" på tavlan '${activeBoard.name}'.` });
+        } else {
+             toast({ title: "Räkning Betald (Delvis)", description: `${newBill.title} markerades som betald, men kunde inte skapa transaktion automatiskt.`, variant: "destructive" });
+        }
+      }
     } else {
       toast({ title: "Fel", description: "Kunde inte lägga till räkningen.", variant: "destructive"});
     }
@@ -83,7 +116,6 @@ export default function BillsPage() {
 
       let transactionDeletedInfo = "";
 
-      // Check if the bill was paid and if there's an active board to find the transaction
       if (billInfo.isPaid && activeBoard && billInfo.id) {
         const transactionToDelete = activeBoard.transactions.find(
             t => t.description?.includes(`(ID: ${billInfo.id})`) && 
@@ -108,71 +140,72 @@ export default function BillsPage() {
     if (!billToToggle) return;
 
     const originalIsPaid = billToToggle.isPaid;
-    const updatedBill = toggleBillStatusInHook(billId); 
-
-    if (updatedBill && !originalIsPaid && updatedBill.isPaid) {
-        // Bill was just marked as paid
-        if (!activeBoard) {
-            toast({ title: "Fel", description: "Ingen aktiv tavla vald för att bokföra räkningen.", variant: "destructive" });
-            toggleBillStatusInHook(billId); 
-            return;
-        }
-        if (!updatedBill.paidDate) {
-            toast({ title: "Fel", description: "Betaldatum saknas för räkningen.", variant: "destructive" });
-            toggleBillStatusInHook(billId); 
-            return; 
-        }
-        if (!updatedBill.categoryId) {
-            toast({ title: "Fel", description: "Kategori saknas för räkningen. Redigera räkningen och välj en kategori.", variant: "destructive" });
-            toggleBillStatusInHook(billId); 
-            return;
-        }
-
-        const targetCategory = activeBoard.categories.find(c => c.id === updatedBill.categoryId && c.type === 'expense');
-
-        if (!targetCategory) {
-            toast({ title: "Fel", description: `Kategorin för räkningen hittades inte på tavlan. Skapa transaktionen manuellt.`, variant: "destructive" });
-            return;
-        }
-
-        const transactionAdded = addTransactionToActiveBoard({
-            title: updatedBill.title,
-            amount: updatedBill.amount, 
-            date: updatedBill.paidDate,
-            categoryId: targetCategory.id,
-            description: `Automatisk transaktion från betald räkning: ${updatedBill.title} (ID: ${updatedBill.id})`,
-        });
-
-        if (transactionAdded) {
-            toast({ title: "Räkning Betald", description: `${updatedBill.title} har markerats som betald och en transaktion har skapats i kategorin "${targetCategory.name}" på tavlan '${activeBoard.name}'.` });
-        } else {
-             toast({ title: "Räkning Betald (Delvis)", description: `${updatedBill.title} markerades som betald, men kunde inte skapa transaktion automatiskt.`, variant: "destructive" });
-        }
-    
-    } else if (updatedBill && originalIsPaid && !updatedBill.isPaid) {
-        // Bill was marked as unpaid
-        if (activeBoard && updatedBill.id) {
-            const transactionToDelete = activeBoard.transactions.find(
-                t => t.description?.includes(`(ID: ${updatedBill.id})`) && 
-                     t.title === updatedBill.title && 
-                     t.amount === updatedBill.amount && 
-                     t.categoryId === updatedBill.categoryId
-            );
-            if (transactionToDelete) {
-                deleteTransactionFromActiveBoard(transactionToDelete.id);
-                toast({
-                    title: "Räkning Omarkerad & Transaktion Raderad",
-                    description: `${updatedBill.title} har markerats som obetald och den tillhörande transaktionen har tagits bort från tavlan '${activeBoard.name}'.`
-                });
-            } else {
-                 toast({ title: "Räkning Omarkerad", description: `${updatedBill.title} har markerats som obetald. Ingen matchande transaktion hittades för automatisk radering.` });
+    // toggleBillStatusInHook now returns a Promise
+    toggleBillStatusInHook(billId).then(updatedBill => {
+        if (updatedBill && !originalIsPaid && updatedBill.isPaid) {
+            // Bill was just marked as paid
+            if (!activeBoard) {
+                toast({ title: "Fel", description: "Ingen aktiv tavla vald för att bokföra räkningen.", variant: "destructive" });
+                toggleBillStatusInHook(billId); 
+                return;
             }
-        } else {
-            toast({ title: "Räkning Omarkerad", description: `${updatedBill.title} har markerats som obetald.` });
+            if (!updatedBill.paidDate) {
+                toast({ title: "Fel", description: "Betaldatum saknas för räkningen.", variant: "destructive" });
+                toggleBillStatusInHook(billId); 
+                return; 
+            }
+            if (!updatedBill.categoryId) {
+                toast({ title: "Fel", description: "Kategori saknas för räkningen. Redigera räkningen och välj en kategori.", variant: "destructive" });
+                toggleBillStatusInHook(billId); 
+                return;
+            }
+
+            const targetCategory = activeBoard.categories.find(c => c.id === updatedBill.categoryId && c.type === 'expense');
+
+            if (!targetCategory) {
+                toast({ title: "Fel", description: `Kategorin för räkningen hittades inte på tavlan. Skapa transaktionen manuellt.`, variant: "destructive" });
+                return;
+            }
+
+            const transactionAdded = addTransactionToActiveBoard({
+                title: updatedBill.title,
+                amount: updatedBill.amount, 
+                date: updatedBill.paidDate,
+                categoryId: targetCategory.id,
+                description: `Automatisk transaktion från betald räkning: ${updatedBill.title} (ID: ${updatedBill.id})`,
+            });
+
+            if (transactionAdded) {
+                toast({ title: "Räkning Betald", description: `${updatedBill.title} har markerats som betald och en transaktion har skapats i kategorin "${targetCategory.name}" på tavlan '${activeBoard.name}'.` });
+            } else {
+                toast({ title: "Räkning Betald (Delvis)", description: `${updatedBill.title} markerades som betald, men kunde inte skapa transaktion automatiskt.`, variant: "destructive" });
+            }
+        
+        } else if (updatedBill && originalIsPaid && !updatedBill.isPaid) {
+            // Bill was marked as unpaid
+            if (activeBoard && updatedBill.id) {
+                const transactionToDelete = activeBoard.transactions.find(
+                    t => t.description?.includes(`(ID: ${updatedBill.id})`) && 
+                        t.title === updatedBill.title && 
+                        t.amount === updatedBill.amount && 
+                        t.categoryId === updatedBill.categoryId
+                );
+                if (transactionToDelete) {
+                    deleteTransactionFromActiveBoard(transactionToDelete.id);
+                    toast({
+                        title: "Räkning Omarkerad & Transaktion Raderad",
+                        description: `${updatedBill.title} har markerats som obetald och den tillhörande transaktionen har tagits bort från tavlan '${activeBoard.name}'.`
+                    });
+                } else {
+                    toast({ title: "Räkning Omarkerad", description: `${updatedBill.title} har markerats som obetald. Ingen matchande transaktion hittades för automatisk radering.` });
+                }
+            } else {
+                toast({ title: "Räkning Omarkerad", description: `${updatedBill.title} har markerats som obetald.` });
+            }
+        } else if (!updatedBill) {
+            toast({ title: "Fel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive"});
         }
-    } else if (!updatedBill) {
-        toast({ title: "Fel", description: "Kunde inte uppdatera räkningens status.", variant: "destructive"});
-    }
+    });
   };
 
 
@@ -305,4 +338,3 @@ export default function BillsPage() {
     </div>
   );
 }
-

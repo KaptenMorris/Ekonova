@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon, FolderArchive } from "lucide-react"
+import { CalendarIcon } from "lucide-react"
 import { format } from "date-fns"
 import { sv } from "date-fns/locale";
 import { cn } from "@/lib/utils"
@@ -30,12 +30,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface AddBillDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddBill: (bill: Omit<Bill, 'id' | 'isPaid' | 'paidDate'>) => void;
-  categories: Category[]; // Expense categories for the active board
+  onAddBill: (bill: Omit<Bill, 'id' | 'userId'>) => void; // Updated prop type
+  categories: Category[];
 }
 
 export function AddBillDialog({
@@ -49,6 +50,8 @@ export function AddBillDialog({
   const [dueDate, setDueDate] = useState<Date | undefined>(new Date());
   const [notes, setNotes] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const [markAsPaidImmediately, setMarkAsPaidImmediately] = useState(false);
+  const [paidDateForImmediate, setPaidDateForImmediate] = useState<Date | undefined>(new Date());
   const { toast } = useToast();
 
   const resetForm = () => {
@@ -57,6 +60,8 @@ export function AddBillDialog({
     setDueDate(new Date());
     setNotes("");
     setCategoryId("");
+    setMarkAsPaidImmediately(false);
+    setPaidDateForImmediate(new Date());
   };
 
   const handleSubmit = () => {
@@ -65,6 +70,14 @@ export function AddBillDialog({
         variant: "destructive",
         title: "Obligatoriska fält saknas",
         description: "Vänligen fyll i titel, belopp, förfallodatum och kategori.",
+      });
+      return;
+    }
+    if (markAsPaidImmediately && !paidDateForImmediate) {
+      toast({
+        variant: "destructive",
+        title: "Betaldatum saknas",
+        description: "Vänligen ange ett betaldatum om räkningen markeras som betald direkt.",
       });
       return;
     }
@@ -78,13 +91,17 @@ export function AddBillDialog({
       return;
     }
 
-    onAddBill({
+    const billPayload: Omit<Bill, 'id' | 'userId'> = {
       title,
       amount: numericAmount,
       dueDate: dueDate.toISOString(),
       notes,
       categoryId,
-    });
+      isPaid: markAsPaidImmediately,
+      paidDate: markAsPaidImmediately && paidDateForImmediate ? paidDateForImmediate.toISOString() : null,
+    };
+
+    onAddBill(billPayload);
     resetForm();
     onClose();
   };
@@ -171,8 +188,6 @@ export function AddBillDialog({
                 {categories.length > 0 ? categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
                     <div className="flex items-center">
-                       {/* Icon rendering can be added here if category icons are available */}
-                       {/* <FolderArchive className="mr-2 h-4 w-4" />  Example */}
                       {cat.name}
                     </div>
                   </SelectItem>
@@ -192,6 +207,44 @@ export function AddBillDialog({
               placeholder="Frivilliga anteckningar om räkningen"
             />
           </div>
+          <div className="col-span-4 flex items-center space-x-2">
+            <Checkbox
+              id="markAsPaidImmediately"
+              checked={markAsPaidImmediately}
+              onCheckedChange={(checked) => setMarkAsPaidImmediately(Boolean(checked))}
+            />
+            <Label htmlFor="markAsPaidImmediately" className="font-normal">Markera som betald direkt?</Label>
+          </div>
+          {markAsPaidImmediately && (
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="paidDate-add-bill" className="text-right">
+                Betaldatum
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className={cn(
+                      "col-span-3 justify-start text-left font-normal",
+                      !paidDateForImmediate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {paidDateForImmediate ? format(paidDateForImmediate, "PPP", { locale: sv }) : <span>Välj betaldatum</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={paidDateForImmediate}
+                    onSelect={setPaidDateForImmediate}
+                    initialFocus
+                    locale={sv}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <DialogClose asChild>
