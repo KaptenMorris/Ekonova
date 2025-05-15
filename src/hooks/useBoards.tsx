@@ -57,7 +57,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     const categoriesFromDoc = Array.isArray(docData.categories) ? docData.categories : [];
     const mappedCategories = categoriesFromDoc.map((c, index) => ({
       ...c,
-      order: typeof c.order === 'number' ? c.order : index, // Assign order if missing, based on array index
+      order: typeof c.order === 'number' ? c.order : index, 
     }));
 
     return {
@@ -67,6 +67,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       categories: mappedCategories,
       transactions: Array.isArray(docData.transactions) ? docData.transactions.map(t => ({
         ...t,
+        // Convert Firestore Timestamp to ISO string for client-side use
         date: t.date instanceof Timestamp ? t.date.toDate().toISOString() : t.date,
       })) : [],
       createdAt: docData.createdAt instanceof Timestamp ? docData.createdAt.toDate().toISOString() : (docData.createdAt || new Date().toISOString()),
@@ -89,7 +90,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   const createDefaultBoardIfNeeded = useCallback(async (currentBoards: Board[]): Promise<Board | null> => {
     if (currentBoards.length === 0 && userId && isAuthenticated) {
       const newCategories = INITIAL_BOARD_CATEGORY_TEMPLATES.map(template => ({
-        ...template, // template already includes order
+        ...template, 
         id: uuidv4(),
       }));
       const newBoardData = {
@@ -103,7 +104,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       try {
         const docRef = await addDoc(collection(db, 'boards'), newBoardData);
         const newBoardForState = { ...newBoardData, id: docRef.id, createdAt: new Date().toISOString(), categories: newCategories }; 
-        setBoards([newBoardForState]); 
+        // setBoards([newBoardForState]); // onSnapshot will handle this
         setActiveBoardIdInternal(docRef.id);
         return newBoardForState;
       } catch (e) {
@@ -126,6 +127,9 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
     setInternalIsLoadingBoards(true);
     const boardsCollectionRef = collection(db, 'boards');
+    // Query for boards where userId matches OR userId is in the sharedWith array
+    // This requires a composite index in Firestore: (userId ==, createdAt asc/desc) AND (sharedWith array-contains, createdAt asc/desc)
+    // For simplicity now, we only fetch user's own boards. Sharing would require more complex queries or rules.
     const q = query(boardsCollectionRef, where('userId', '==', userId));
     
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -133,20 +137,28 @@ export function BoardProvider({ children }: { children: ReactNode }) {
       querySnapshot.forEach((doc) => {
         fetchedBoards.push(mapFirestoreDocToBoard(doc.data(), doc.id));
       });
+      
+      // Sort boards by creation date, most recent first
+      fetchedBoards.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setBoards(fetchedBoards);
 
       if (fetchedBoards.length === 0) {
-        createDefaultBoardIfNeeded(fetchedBoards); 
+        createDefaultBoardIfNeeded(fetchedBoards).then(newBoard => {
+          if (newBoard) {
+            // onSnapshot should pick this up, but setting active ID explicitly is good
+             setActiveBoardIdInternal(newBoard.id);
+          }
+        }); 
       } else {
         const activeIdKey = `ekonova-active-board-id-${userId}`;
         const storedActiveId = typeof window !== 'undefined' ? localStorage.getItem(activeIdKey) : null;
         if (storedActiveId && fetchedBoards.some(b => b.id === storedActiveId)) {
           setActiveBoardIdState(storedActiveId);
-        } else if (fetchedBoards.length > 0) { // ensure fetchedBoards is not empty
-          setActiveBoardIdState(fetchedBoards[0].id);
+        } else if (fetchedBoards.length > 0) { 
+          setActiveBoardIdState(fetchedBoards[0].id); // Default to the first (most recent) board
           if (typeof window !== 'undefined') localStorage.setItem(activeIdKey, fetchedBoards[0].id);
         } else {
-          setActiveBoardIdState(null); // No boards, no active ID
+          setActiveBoardIdState(null); 
         }
       }
       setInternalIsLoadingBoards(false);
@@ -157,7 +169,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [isAuthenticated, userId, isLoadingAuth, toast, createDefaultBoardIfNeeded]);
+  }, [isAuthenticated, userId, isLoadingAuth, toast, createDefaultBoardIfNeeded, setActiveBoardIdInternal]);
 
 
   const addBoard = useCallback(async (name: string): Promise<Board | null> => {
@@ -167,30 +179,31 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     }
     setInternalIsLoadingBoards(true);
     const newCategories = INITIAL_BOARD_CATEGORY_TEMPLATES.map(template => ({
-      ...template, // template already includes order
+      ...template, 
       id: uuidv4(),
     }));
     const newBoardData = {
       userId: userId,
       name: name,
       categories: newCategories,
-      transactions: [],
-      createdAt: serverTimestamp(),
+      transactions: [], // Transactions start empty
+      createdAt: serverTimestamp(), // Use server timestamp for creation
       sharedWith: [],
     };
     try {
       const docRef = await addDoc(collection(db, 'boards'), newBoardData);
-      setActiveBoardIdInternal(docRef.id);
+      // setActiveBoardIdInternal(docRef.id); // Let onSnapshot handle setting active board
       toast({ title: "Tavla Skapad", description: `Tavlan "${name}" har skapats.` });
-      return { ...newBoardData, id: docRef.id, createdAt: new Date().toISOString(), categories: newCategories }; 
+      // Return a representation of the board, actual data will come via onSnapshot
+      return { ...newBoardData, id: docRef.id, createdAt: new Date().toISOString(), categories: newCategories, transactions: [] }; 
     } catch (e) {
       console.error("Firebase: Failed to add board:", e);
       toast({ title: "Fel", description: "Kunde inte skapa tavlan.", variant: "destructive" });
       return null;
     } finally {
-      setInternalIsLoadingBoards(false);
+      // setInternalIsLoadingBoards(false); // onSnapshot will set this
     }
-  }, [isAuthenticated, userId, toast, setActiveBoardIdInternal]);
+  }, [isAuthenticated, userId, toast]);
 
   const renameBoard = useCallback(async (boardId: string, newName: string) => {
     if (!isAuthenticated || !userId) return;
@@ -211,35 +224,59 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     try {
       await deleteDoc(boardDocRef);
       toast({ title: "Tavla Raderad", description: `Tavlan "${boardToDelete?.name || boardId}" har raderats.` });
+      // Active board logic is handled by useEffect if the activeBoardId becomes invalid
       if (activeBoardId === boardId) {
-          const remainingBoards = boards.filter(b => b.id !== boardId); 
-          if (remainingBoards.length > 0) {
-              setActiveBoardIdInternal(remainingBoards[0].id);
-          } else {
-              setActiveBoardIdInternal(null);
-              await createDefaultBoardIfNeeded([]); 
-          }
+         setActiveBoardIdInternal(null); // Force re-evaluation or default selection
       }
     } catch (e) {
       console.error("Firebase: Failed to delete board:", e);
       toast({ title: "Fel", description: "Kunde inte radera tavlan.", variant: "destructive" });
     }
-  }, [isAuthenticated, userId, boards, activeBoardId, setActiveBoardIdInternal, toast, createDefaultBoardIfNeeded]);
+  }, [isAuthenticated, userId, boards, activeBoardId, setActiveBoardIdInternal, toast]);
 
   const modifyActiveBoardArrayField = useCallback(async (
     fieldName: 'categories' | 'transactions',
-    updateLogic: (currentArray: any[]) => any[]
+    updateLogic: (currentArray: any[]) => any[] // Expects currentArray items to have dates as ISO strings
   ): Promise<boolean> => {
-    if (!isAuthenticated || !userId || !activeBoardId) return false;
+    if (!isAuthenticated || !userId || !activeBoardId) {
+        console.error("modifyActiveBoardArrayField: Pre-condition failed", {isAuthenticated, userId, activeBoardId});
+        return false;
+    }
     const boardDocRef = doc(db, 'boards', activeBoardId);
-    const currentBoard = boards.find(b => b.id === activeBoardId);
-    if (!currentBoard) return false;
+    
+    // Get the most up-to-date board from state just before modification
+    const currentBoardFromState = boards.find(b => b.id === activeBoardId);
+    if (!currentBoardFromState) {
+        console.error("modifyActiveBoardArrayField: Active board not found in state");
+        return false;
+    }
 
-    const currentArray = (currentBoard[fieldName] as any[]) || [];
-    const updatedArray = updateLogic(currentArray);
+    const currentArray = (currentBoardFromState[fieldName] as any[]) || [];
+    // updateLogic returns an array with items where dates are still ISO strings (if applicable)
+    const updatedArrayWithIsoDates = updateLogic(currentArray);
+
+    let arrayForFirestore = updatedArrayWithIsoDates;
+    if (fieldName === 'transactions') {
+      // Convert date strings to Firestore Timestamps for storage
+      arrayForFirestore = updatedArrayWithIsoDates.map(t => {
+        const transactionDate = t.date; // This is an ISO string from local state/newly created transaction
+        if (typeof transactionDate === 'string') {
+          try {
+            return { ...t, date: Timestamp.fromDate(new Date(transactionDate)) };
+          } catch (dateError) {
+            console.error("Error converting date string to Timestamp:", transactionDate, dateError);
+            return { ...t, date: serverTimestamp() }; // Fallback or handle error appropriately
+          }
+        }
+        return t; // If already a Timestamp or other type, pass through (though should be string)
+      });
+    }
+    // For categories, no special date conversion is needed for the category object itself.
 
     try {
-      await updateDoc(boardDocRef, { [fieldName]: updatedArray });
+      await updateDoc(boardDocRef, { [fieldName]: arrayForFirestore });
+      // Local state will be updated by onSnapshot listener.
+      // If optimistic update is needed, update local state here with updatedArrayWithIsoDates.
       return true;
     } catch (e) {
       console.error(`Firebase: Failed to update ${fieldName}:`, e);
@@ -255,16 +292,16 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     const categoriesOfType = currentBoard.categories.filter(c => c.type === categoryData.type);
     const maxOrder = categoriesOfType.reduce((max, cat) => Math.max(max, cat.order), -1);
 
-    const newCategory: Category = {
+    const newCategory: Category = { // Category type has order: number
       ...categoryData,
       id: uuidv4(),
-      icon: categoryData.icon || 'Archive',
+      icon: categoryData.icon || 'Archive', // Default icon if not provided
       order: maxOrder + 1,
     };
     const success = await modifyActiveBoardArrayField('categories', current => [...current, newCategory]);
     if (success) {
       toast({ title: "Kategori Tillagd", description: `"${newCategory.name}" har lagts till.` });
-      return newCategory;
+      return newCategory; // Return with ISO dates
     }
     return null;
   }, [modifyActiveBoardArrayField, toast, boards, activeBoardId]);
@@ -280,9 +317,16 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     const boardDocRef = doc(db, 'boards', activeBoardId);
 
     const updatedCategories = board.categories.filter(c => c.id !== categoryId);
+    // Also remove transactions associated with the deleted category
     const updatedTransactions = board.transactions.filter(t => t.categoryId !== categoryId);
     
-    batch.update(boardDocRef, { categories: updatedCategories, transactions: updatedTransactions });
+    // Prepare transactions with Timestamps for Firestore write if dates are involved
+    const transactionsForFirestore = updatedTransactions.map(t => ({
+        ...t,
+        date: typeof t.date === 'string' ? Timestamp.fromDate(new Date(t.date)) : t.date
+    }));
+
+    batch.update(boardDocRef, { categories: updatedCategories, transactions: transactionsForFirestore });
 
     try {
       await batch.commit();
@@ -323,6 +367,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
 
     if (!targetCategoryInTypedList) return;
 
+    // Find the global objects to ensure we are swapping original order values
     const finalTargetCategory = currentBoard.categories.find(c => c.id === targetCategoryInTypedList!.id);
     if(!finalTargetCategory) return;
 
@@ -337,7 +382,10 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     });
 
     try {
+      // `modifyActiveBoardArrayField` is not suitable here as it updates one array field,
+      // and this logic is about reordering within the categories array itself.
       await updateDoc(boardDocRef, { categories: updatedAllCategories });
+      toast({ title: "Ordning Uppdaterad", description: "Kategoriernas ordning har uppdaterats." });
     } catch (e) {
       console.error(`Firebase: Failed to update category order:`, e);
       toast({ title: "Fel", description: "Kunde inte uppdatera kategoriernas ordning.", variant: "destructive" });
@@ -346,30 +394,33 @@ export function BoardProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated, userId, activeBoardId, boards, toast]);
 
   const addTransactionToActiveBoard = useCallback(async (transactionData: Omit<Transaction, 'id'>): Promise<Transaction | null> => {
-    const newTransaction: Transaction = {
+    // The transactionData.date comes from the form, typically as a JS Date object or already an ISO string
+    const newTransaction: Transaction = { // Transaction type has date: string (ISO)
       ...transactionData,
       id: uuidv4(),
-      date: new Date(transactionData.date).toISOString(), 
+      date: new Date(transactionData.date).toISOString(), // Ensure it's a clean ISO string for local state
     };
+    // modifyActiveBoardArrayField will handle converting this ISO string to Timestamp for Firestore
     const success = await modifyActiveBoardArrayField('transactions', current => [...current, newTransaction]);
     if (success) {
       toast({ title: "Transaktion Tillagd", description: `"${newTransaction.title}" har lagts till.` });
-      return newTransaction;
+      return newTransaction; // Return with ISO date string
     }
     return null;
   }, [modifyActiveBoardArrayField, toast]);
 
   const updateTransactionInActiveBoard = useCallback(async (updatedTransaction: Transaction): Promise<Transaction | null> => {
-    const transactionToUpdate: Transaction = {
+    const transactionToUpdate: Transaction = { // Transaction type has date: string (ISO)
         ...updatedTransaction,
-        date: new Date(updatedTransaction.date).toISOString(),
+        date: new Date(updatedTransaction.date).toISOString(), // Ensure clean ISO string
     };
+    // modifyActiveBoardArrayField will handle converting this ISO string to Timestamp for Firestore
     const success = await modifyActiveBoardArrayField('transactions', current =>
       current.map(t => (t.id === transactionToUpdate.id ? transactionToUpdate : t))
     );
     if (success) {
       toast({ title: "Transaktion Uppdaterad", description: `"${transactionToUpdate.title}" har uppdaterats.` });
-      return transactionToUpdate;
+      return transactionToUpdate; // Return with ISO date string
     }
     return null;
   }, [modifyActiveBoardArrayField, toast]);
@@ -390,6 +441,7 @@ export function BoardProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated || !userId) return;
     const boardDocRef = doc(db, 'boards', boardId);
     try {
+      // In a real app, you'd convert email to UID here or handle permissions differently
       await updateDoc(boardDocRef, { sharedWith: arrayUnion(emailToShareWith) });
       toast({ title: "Tavla Delad", description: `Försökte dela med ${emailToShareWith}. Åtkomst styrs av säkerhetsregler.` });
     } catch (e) {
@@ -446,3 +498,4 @@ export function useBoards() {
   }
   return context;
 }
+
