@@ -5,18 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/hooks/useMockAuth"; // Use the new Auth hook
+import { useAuth } from "@/hooks/useMockAuth"; 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { LogIn, Mail, KeyRound, Loader2, ShieldAlert } from 'lucide-react';
+import { LogIn, Mail, KeyRound, Loader2, ShieldAlert, Chrome } from 'lucide-react'; // Added Chrome
 import { Logo } from '@/components/shared/Logo';
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
 
 
 export default function LoginPage() {
-  const { login, isAuthenticated, isLoading: isLoadingAuth, resendVerification } = useAuth(); // Use useAuth
+  const { login, signInWithGoogle, isAuthenticated, isLoading: isLoadingAuth, resendVerification } = useAuth(); 
   const router = useRouter();
   const { toast } = useToast();
   const [email, setEmail] = useState('');
@@ -25,7 +26,6 @@ export default function LoginPage() {
   const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
 
   useEffect(() => {
-    // Redirect if already authenticated and auth is loaded
     if (!isLoadingAuth && isAuthenticated) {
       router.replace('/dashboard');
     }
@@ -33,13 +33,13 @@ export default function LoginPage() {
 
   const handleResendVerification = async () => {
       setIsSubmitting(true);
-      await resendVerification(); // This now uses Firebase and shows its own toast
+      await resendVerification(); 
       setIsSubmitting(false);
   };
 
-  const handleSubmit = async (event: FormEvent) => {
+  const handleEmailPasswordLogin = async (event: FormEvent) => {
     event.preventDefault();
-    setShowVerificationPrompt(false); // Reset prompt on new submission
+    setShowVerificationPrompt(false); 
     if (!email || !password) {
         toast({
             title: "Inloggning Misslyckad",
@@ -50,30 +50,44 @@ export default function LoginPage() {
     }
     setIsSubmitting(true);
     const result = await login(email, password);
-    setIsSubmitting(false);
-
+    // Redirection or error handling happens based on `result` and `isAuthenticated` state
     if (!result.success) {
       let description = "Kontrollera dina uppgifter och försök igen.";
-      if (result.errorKey === 'account_deleted') {
+      if (result.errorKey === 'account_deleted') { // This key needs to be implemented in useAuth if needed
         description = "Detta konto har raderats. Registrera dig på nytt för att använda tjänsten.";
       } else if (result.errorKey === 'account_not_verified') {
         description = "Ditt konto är inte verifierat. Kontrollera din e-post för verifieringslänken eller begär en ny.";
-        setShowVerificationPrompt(true); // Show resend option
+        setShowVerificationPrompt(true); 
       } else if (result.errorKey === 'invalid_credentials') {
          description = "Felaktig e-postadress eller lösenord.";
       } else if (result.errorKey === 'config_error') {
         description = "Ett konfigurationsfel uppstod. Kontakta support om problemet kvarstår."
+      } else if (result.errorKey === 'user-disabled') {
+        description = "Ditt konto har inaktiverats av en administratör.";
+      } else if (result.errorKey === 'too-many-requests') {
+        description = "För många inloggningsförsök. Försök igen senare.";
       }
-
-
       toast({
         title: "Inloggning Misslyckad",
         description: description,
         variant: "destructive",
       });
     }
-    // Successful login and redirection is handled by the login function itself if successful, or by useEffect
+    setIsSubmitting(false);
   };
+
+  const handleGoogleLogin = async () => {
+    setIsSubmitting(true);
+    setShowVerificationPrompt(false);
+    const result = await signInWithGoogle();
+    // Redirection or error handling happens based on `result` and `isAuthenticated` state
+    if (!result.success) {
+      // signInWithGoogle in useAuth handles its own toasts for Google-specific errors
+      // Generic error can be handled here if needed, but usually not for Google Popups.
+    }
+    setIsSubmitting(false);
+  };
+
 
   if (isLoadingAuth || (!isLoadingAuth && isAuthenticated)) {
     return (
@@ -100,7 +114,7 @@ export default function LoginPage() {
             <CardTitle className="text-3xl font-bold text-primary">Välkommen Tillbaka!</CardTitle>
             <CardDescription>Logga in för att hantera din ekonomi med Ekonova.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
             {showVerificationPrompt && (
               <Alert variant="destructive" className="mb-6">
                 <ShieldAlert className="h-5 w-5" />
@@ -109,7 +123,7 @@ export default function LoginPage() {
                   Kontrollera din e-post för verifieringslänken. Har du inte fått någon?
                   <Button
                       variant="link"
-                      className="p-0 h-auto ml-1 text-destructive font-semibold"
+                      className="p-0 h-auto ml-1 text-destructive font-semibold underline"
                       onClick={handleResendVerification}
                       disabled={isSubmitting}
                   >
@@ -118,7 +132,7 @@ export default function LoginPage() {
                 </AlertDescription>
               </Alert>
             )}
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleEmailPasswordLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">E-post</Label>
                 <div className="relative">
@@ -151,13 +165,30 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
-              <Button type="submit" className="w-full bg-accent hover:bg-accent/90 text-accent-foreground text-lg py-6" disabled={isSubmitting}>
-                {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
-                {isSubmitting ? 'Loggar in...' : 'Logga In'}
+              <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSubmitting}>
+                {isSubmitting && !showVerificationPrompt ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
+                {isSubmitting && !showVerificationPrompt ? 'Loggar in...' : 'Logga In'}
               </Button>
             </form>
+            
+            <div className="relative my-3">
+              <div className="absolute inset-0 flex items-center">
+                <Separator />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">
+                  Eller fortsätt med
+                </span>
+              </div>
+            </div>
+
+            <Button variant="outline" className="w-full" onClick={handleGoogleLogin} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Chrome className="mr-2 h-5 w-5" />} 
+              Logga in med Google
+            </Button>
+
           </CardContent>
-          <CardFooter className="flex flex-col items-center space-y-2">
+          <CardFooter className="flex flex-col items-center space-y-2 pt-4">
             <p className="text-sm text-muted-foreground">
               Har du inget konto?{" "}
               <Link href="/signup" className="font-semibold text-primary hover:underline">
