@@ -2,7 +2,7 @@
 // src/lib/firebase.ts
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getFirestore, type Firestore, Timestamp } from 'firebase/firestore'; // Added Timestamp for db check
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 // Get environment variables
@@ -23,7 +23,7 @@ const requiredEnvVars: Record<string, string | undefined> = {
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: firebaseStorageBucket,
   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: firebaseMessagingSenderId,
   NEXT_PUBLIC_FIREBASE_APP_ID: firebaseAppId,
-  NEXT_PUBLIC_FIREBASE_DATABASE_URL: firebaseDatabaseURL, // Making this explicitly required
+  NEXT_PUBLIC_FIREBASE_DATABASE_URL: firebaseDatabaseURL, // Explicitly required
 };
 
 let firebaseConfigIsValid = true;
@@ -47,7 +47,7 @@ for (const [key, value] of Object.entries(requiredEnvVars)) {
 }
 
 if (!firebaseConfigIsValid) {
-  console.error("CRITICAL: Firebase configuration variables are missing or invalid. Firebase will NOT be initialized correctly. Review the errors above.");
+  console.error("CRITICAL: One or more Firebase configuration variables are missing or invalid. Firebase initialization will be SKIPPED or will likely FAIL. Review the errors above.");
 }
 console.log("--- Firebase Configuration Check END ---");
 
@@ -88,6 +88,7 @@ if (firebaseConfigIsValid) {
     } catch (error: any) {
       console.error("Firebase Core App Initialization Error:", error.message || error, "Code:", error.code || 'N/A');
       firebaseConfigIsValid = false; // Mark as invalid if app init fails
+      firebaseAppWasInitialized = false;
     }
   } else {
     app = getApps()[0];
@@ -101,12 +102,12 @@ if (firebaseConfigIsValid) {
       console.log("Firebase Auth service initialized.");
     } catch (e: any) {
       console.error("Firebase Auth Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
-      // Auth might be optional for some parts, but log it.
     }
 
+    console.log("Attempting to initialize Firestore...");
     try {
       dbInstance = getFirestore(app);
-      console.log("Firebase Firestore service initialized.");
+      console.log("Firebase Firestore service initialized SUCCESSFULLY.");
       firestoreWasInitialized = true;
     } catch (e: any) {
       console.error("Firebase Firestore Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
@@ -120,12 +121,14 @@ if (firebaseConfigIsValid) {
     } catch (e: any) {
       console.error("Firebase Storage Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
     }
-  } else if (firebaseConfigIsValid) { // Only if config was thought to be valid but app init failed
+  } else if (firebaseConfigIsValid) { 
     console.error("Firebase app object is not available or valid after initialization attempt, despite initial config seeming valid. Firebase services will not be initialized.");
     firebaseConfigIsValid = false;
     firebaseAppWasInitialized = false;
     firestoreWasInitialized = false;
   }
+} else {
+    console.warn("Firebase initialization was SKIPPED due to invalid configuration. Check .env.local and previous logs.");
 }
 
 if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitialized) {
@@ -136,7 +139,7 @@ if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitial
   This is likely due to missing/incorrect environment variables in '.env.local',
   or issues with your Firebase project setup (e.g., Firestore database not created/enabled).
 
-  CURRENT STATUS:
+  FINAL INITIALIZATION STATUS:
     - firebaseConfigIsValid: ${firebaseConfigIsValid}
     - firebaseAppWasInitialized: ${firebaseAppWasInitialized}
     - firestoreWasInitialized: ${firestoreWasInitialized}
@@ -164,6 +167,14 @@ if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitial
   dbInstance = {} as Firestore;
   storageInstance = {} as FirebaseStorage;
 }
+
+console.log(`--- Firebase Initialization FINAL STATUS ---`);
+console.log(`firebaseConfigIsValid: ${firebaseConfigIsValid}`);
+console.log(`firebaseAppWasInitialized: ${firebaseAppWasInitialized}`);
+console.log(`firestoreWasInitialized: ${firestoreWasInitialized}`);
+console.log(`Exporting db object:`, dbInstance && Object.keys(dbInstance).length > 0 ? 'Looks like a valid Firestore instance' : 'db object IS EMPTY or INVALID');
+console.log(`--------------------------------------`);
+
 
 export {
   app,

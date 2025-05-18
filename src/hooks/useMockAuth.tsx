@@ -27,7 +27,13 @@ import {
   EmailAuthProvider
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, Timestamp, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import { auth, db, firebaseConfigIsValid, firebaseAppWasInitialized, firestoreWasInitialized } from '@/lib/firebase';
+import { 
+    auth, 
+    db, 
+    firebaseConfigIsValid, 
+    firebaseAppWasInitialized, 
+    firestoreWasInitialized 
+} from '@/lib/firebase'; // Import the flags
 import { useToast } from './use-toast';
 import type { UserProfile } from '@/types';
 
@@ -86,28 +92,25 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   const fetchUserProfile = useCallback(async (uid: string): Promise<UserProfile | null> => {
-    if (!firebaseConfigIsValid) {
-      console.error("CRITICAL in fetchUserProfile: firebaseConfigIsValid is FALSE. Firebase was NOT configured correctly. Aborting Firestore operation. Review logs from 'src/lib/firebase.ts'.");
+    console.log(`fetchUserProfile called for UID: ${uid}. Firebase Init Status from firebase.ts: configValid=${firebaseConfigIsValid}, appInit=${firebaseAppWasInitialized}, firestoreInit=${firestoreWasInitialized}`);
+    
+    if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitialized) {
+      console.error(
+        "CRITICAL in fetchUserProfile: Firebase system is not correctly initialized according to flags from 'firebase.ts'. Cannot fetch user profile. Review logs from 'src/lib/firebase.ts'."
+      );
       setUserProfile(null);
       return null;
     }
-    if (!firebaseAppWasInitialized) {
-      console.error("CRITICAL in fetchUserProfile: firebaseAppWasInitialized is FALSE. Firebase App was NOT initialized. Aborting Firestore operation. Review logs from 'src/lib/firebase.ts'.");
-      setUserProfile(null);
-      return null;
-    }
-    if (!firestoreWasInitialized) {
-      console.error("CRITICAL in fetchUserProfile: firestoreWasInitialized is FALSE. Firestore service was NOT initialized. Aborting Firestore operation. Review logs from 'src/lib/firebase.ts'.");
-      setUserProfile(null);
-      return null;
-    }
-    if (!db || (typeof db === 'object' && Object.keys(db).length === 0 && !(db instanceof Timestamp))) { // Basic check for db object
-      console.error("CRITICAL in fetchUserProfile: Firestore 'db' instance from 'src/lib/firebase.ts' is not available or appears uninitialized. Aborting. Ensure Firestore initialized correctly in 'src/lib/firebase.ts'.");
+    if (!db || (typeof db === 'object' && Object.keys(db).length === 0 && !(db instanceof Timestamp))) { 
+      console.error("CRITICAL: Firestore 'db' instance is not available or appears uninitialized in fetchUserProfile. Cannot fetch user profile. Check initialization in 'src/lib/firebase.ts'.");
       setUserProfile(null);
       return null;
     }
 
-    console.log(`fetchUserProfile called for UID: ${uid}. Firebase Init Status: configValid=${firebaseConfigIsValid}, appInit=${firebaseAppWasInitialized}, firestoreInit=${firestoreWasInitialized}`);
+    console.log(`fetchUserProfile: Proceeding with getDoc. db object:`, db);
+    console.log(`fetchUserProfile: Current flags: firebaseConfigIsValid=${firebaseConfigIsValid}, firebaseAppWasInitialized=${firebaseAppWasInitialized}, firestoreWasInitialized=${firestoreWasInitialized}`);
+
+
     if (!uid) {
       console.warn("fetchUserProfile called with no UID. Aborting.");
       setUserProfile(null);
@@ -154,6 +157,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
 
   const ensureUserProfileExists = useCallback(async (user: FirebaseUser, isNewGoogleUser: boolean = false) => {
+    console.log(`ensureUserProfileExists called for UID: ${user.uid}. Firebase Init Status from firebase.ts: configValid=${firebaseConfigIsValid}, appInit=${firebaseAppWasInitialized}, firestoreInit=${firestoreWasInitialized}`);
     if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitialized) {
       console.error("CRITICAL in ensureUserProfileExists: Firebase system is not correctly initialized. Cannot ensure user profile. Review logs from 'src/lib/firebase.ts'.");
       toast({
@@ -209,38 +213,42 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
 
   useEffect(() => {
-    console.log("Auth Provider: useEffect for onAuthStateChanged running. firebaseConfigIsValid:", firebaseConfigIsValid);
-    if (!firebaseConfigIsValid || !firebaseAppWasInitialized) { // Check app initialization too
+    console.log("Auth Provider: useEffect for onAuthStateChanged running.");
+    console.log(`Auth Provider: Initial Firebase status from firebase.ts: configValid=${firebaseConfigIsValid}, appInit=${firebaseAppWasInitialized}, firestoreInit=${firestoreWasInitialized}`);
+
+    if (!firebaseConfigIsValid || !firebaseAppWasInitialized) {
       setIsLoading(false);
       setFirebaseUser(null);
       setUserProfile(null);
-      console.warn("Firebase configuration or App initialization is invalid. Auth services will not function effectively. User will appear logged out. Review logs from 'src/lib/firebase.ts'.");
+      console.warn("CRITICAL Auth Provider: Firebase configuration or App initialization is invalid according to flags from 'firebase.ts'. Auth services will not function effectively. User will appear logged out. Review logs from 'src/lib/firebase.ts'.");
       return; 
     }
-
+    
     setIsLoading(true);
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       console.log("Auth Provider: onAuthStateChanged triggered. User:", user ? user.uid : null, "Email Verified:", user ? user.emailVerified : null);
+      console.log(`Auth Provider (onAuthStateChanged): Firestore initialized status (from firebase.ts): ${firestoreWasInitialized}`);
       setFirebaseUser(user);
+
       if (user) {
         if (user.emailVerified) {
           if (!firestoreWasInitialized) {
-            console.warn("Auth Provider: Firestore not initialized. Cannot fetch/ensure profile for UID:", user.uid, ". Review logs from 'src/lib/firebase.ts'.");
-            setUserProfile(null);
+            console.warn(`CRITICAL Auth Provider (onAuthStateChanged): Firestore not initialized for UID: ${user.uid}, but user is verified. Cannot fetch/ensure profile. Review 'src/lib/firebase.ts' logs.`);
+            setUserProfile(null); // Explicitly set to null if Firestore is not ready
           } else {
-            console.log("Auth Provider: User email IS verified. Attempting to fetch/ensure profile for UID:", user.uid);
+            console.log("Auth Provider (onAuthStateChanged): User email IS verified & Firestore IS initialized. Attempting to fetch/ensure profile for UID:", user.uid);
             const profile = await fetchUserProfile(user.uid); 
             if (!profile) {
-              console.log("Auth Provider: No existing profile found by fetchUserProfile, attempting to ensure profile exists for UID:", user.uid);
+              console.log("Auth Provider (onAuthStateChanged): No existing profile found by fetchUserProfile, attempting to ensure profile exists for UID:", user.uid);
               await ensureUserProfileExists(user); 
             }
           }
         } else {
-          console.log(`Auth Provider: User ${user.uid} is authenticated BUT email not verified. userProfile will be null. Waiting for email verification.`);
+          console.log(`Auth Provider (onAuthStateChanged): User ${user.uid} is authenticated BUT email not verified. userProfile will be null. Waiting for email verification.`);
           setUserProfile(null); 
         }
       } else {
-        console.log("Auth Provider: No user authenticated, userProfile set to null.");
+        console.log("Auth Provider (onAuthStateChanged): No user authenticated, userProfile set to null.");
         setUserProfile(null);
       }
       setIsLoading(false);
@@ -260,9 +268,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       if (!userCredential.user.emailVerified) {
+        // User is technically logged in by Firebase, but email not verified.
+        // onAuthStateChanged will set firebaseUser. Let UI handle verification prompt.
+        // No need to signOut here, as "Resend verification" needs an active (though unverified) user.
         setIsLoading(false);
         return { success: false, errorKey: 'account_not_verified' };
       }
+      // If email is verified, onAuthStateChanged will handle fetching profile and setting full isAuthenticated state.
       setIsLoading(false);
       return { success: true };
 
@@ -280,7 +292,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: false, errorKey };
     }
-  }, [toast]); 
+  }, []); 
 
   const signInWithGoogle = useCallback(async (): Promise<LoginResult> => {
     if (!firebaseConfigIsValid || !firebaseAppWasInitialized) {
@@ -290,7 +302,8 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      // const user = result.user; // onAuthStateChanged will handle this and ensureUserProfileExists
       setIsLoading(false);
       return { success: true };
     } catch (error: any) {
@@ -328,11 +341,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     }
     setIsLoading(true);
     try {
-      const currentUid = firebaseUser?.uid; 
+      const currentUid = firebaseUser?.uid; // Get UID before signing out
       await signOut(auth);
       if (currentUid && typeof window !== 'undefined') {
          localStorage.removeItem(`ekonova-active-board-id-${currentUid}`);
       }
+      // setFirebaseUser(null); // onAuthStateChanged will handle this
+      // setUserProfile(null);  // onAuthStateChanged will handle this
       router.push('/login');
       toast({ title: "Utloggad", description: "Du har loggats ut." });
     } catch (e) {
@@ -341,7 +356,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [router, toast, firebaseUser]); 
+  }, [router, toast, firebaseUser]); // Added firebaseUser to dependency array
 
   const signup = useCallback(async (email?: string, password?: string, name?: string): Promise<SignupResult> => {
     if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitialized) {
@@ -427,14 +442,17 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     const batch = writeBatch(db);
 
     try {
+      // Query and delete boards
       const boardsQuery = query(collection(db, "boards"), where("userId", "==", uidToDelete));
       const boardsSnapshot = await getDocs(boardsQuery);
       boardsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
 
+      // Query and delete bills
       const billsQuery = query(collection(db, "bills"), where("userId", "==", uidToDelete));
       const billsSnapshot = await getDocs(billsQuery);
       billsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
       
+      // Delete user profile
       const userProfileDocRef = doc(db, "users", uidToDelete);
       batch.delete(userProfileDocRef);
 
@@ -463,22 +481,28 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       const uidToDelete = currentUser.uid;
       setIsLoading(true);
       try {
+        // Attempt to delete related Firestore data first
         const dataDeletedSuccessfully = await deleteRelatedData(uidToDelete); 
         if (!dataDeletedSuccessfully) {
+           // Decide if you want to proceed with auth user deletion if DB deletion fails.
+           // For now, we log a warning and proceed.
            console.warn("Deletion of related Firestore data failed or was incomplete. Auth user deletion will still be attempted.");
         }
         
-        await firebaseDeleteUser(currentUser);    
+        await firebaseDeleteUser(currentUser);    // Delete the Firebase Auth user
         
+        // Clear any local storage related to this user
         const activeIdKey = `ekonova-active-board-id-${uidToDelete}`;
         if (typeof window !== 'undefined') localStorage.removeItem(activeIdKey);
 
-        router.push('/login'); 
+        // onAuthStateChanged will eventually set firebaseUser and userProfile to null
+        router.push('/login'); // Redirect to login page
         toast({ title: "Konto Raderat", description: "Ditt konto och all tillhörande data har raderats permanent." });
       } catch (e: any) {
         console.error("Firebase delete account error:", e);
         if (e.code === 'auth/requires-recent-login') {
           toast({ title: "Återautentisering Krävs", description: "Logga in igen och försök sedan radera kontot.", variant: "destructive" });
+          // Optionally, redirect to login or prompt for re-authentication here
         } else {
           toast({ title: "Fel Vid Radering", description: "Kunde inte radera konto. Försök igen.", variant: "destructive" });
         }
@@ -533,11 +557,14 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
        }
       setIsLoading(true);
       try {
+        // Update Firebase Auth profile
         await updateProfile(currentUser, { photoURL: imageDataUri });
         
+        // Update Firestore user profile document
         const userDocRef = doc(db, 'users', currentUser.uid);
         await setDoc(userDocRef, { avatarUrl: imageDataUri }, { merge: true });
 
+        // Optimistically update local state
         setUserProfile(prev => prev ? { ...prev, avatarUrl: imageDataUri } : null);
         
         setIsLoading(false);
@@ -573,7 +600,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       const userDocRef = doc(db, 'users', currentUser.uid);
       try {
         await setDoc(userDocRef, preferences, { merge: true });
-        setUserProfile(prev => prev ? { ...prev, ...preferences } : null); 
+        setUserProfile(prev => prev ? { ...prev, ...preferences } : null); // Optimistic update
         setIsLoading(false);
         return { success: true };
       } catch (e: any) {
@@ -589,7 +616,14 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     }
   }, [toast]); 
   
-  const isAuthenticatedResult = firebaseConfigIsValid && firebaseAppWasInitialized && !!firebaseUser && !!firebaseUser.emailVerified && firestoreWasInitialized;
+  // Determine overall authentication status for the app
+  const isAuthenticatedResult = 
+    firebaseConfigIsValid && 
+    firebaseAppWasInitialized && 
+    !!firebaseUser && 
+    !!firebaseUser.emailVerified && 
+    firestoreWasInitialized && // Crucially, ensure Firestore is also ready before considering fully authenticated for app features
+    !!userProfile; // And that we have successfully loaded a user profile from Firestore
 
   return (
     <AuthContext.Provider value={{
