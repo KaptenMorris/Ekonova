@@ -46,3 +46,13 @@ export interface Bill {
   notes?: string;
   categoryId: string;
 }
+
+// User data structure stored in Firestore
+export interface UserProfile {
+  uid: string;
+  email: string | null;
+  name: string | null;
+  avatarUrl?: string | null;
+  createdAt: any; // Firestore serverTimestamp or Date or ISO string
+  showBillsSection?: boolean; // New setting
+}

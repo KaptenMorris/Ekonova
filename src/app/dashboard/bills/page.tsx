@@ -1,14 +1,16 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { Bill, Category } from "@/types";
 import { useBills } from "@/hooks/useBills";
 import { useBoards } from "@/hooks/useBoards"; 
 import { useToast } from "@/hooks/use-toast"; 
+import { useAuth } from "@/hooks/useMockAuth";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { PlusCircle, Loader2, Info, CheckCircle2, Receipt } from "lucide-react";
+import { PlusCircle, Loader2, Info, CheckCircle2, Receipt, EyeOff } from "lucide-react";
 import { BillItemCard } from "../components/bills/BillItemCard";
 import { AddBillDialog } from "../components/bills/AddBillDialog";
 import { EditBillDialog } from "../components/bills/EditBillDialog";
@@ -30,9 +32,27 @@ export default function BillsPage() {
   const { bills, isLoadingBills, addBill, toggleBillPaidStatus: toggleBillStatusInHook, deleteBill: deleteBillFromHook, updateBill } = useBills();
   const { activeBoard, addCategoryToActiveBoard, addTransactionToActiveBoard, deleteTransactionFromActiveBoard, isLoadingBoards } = useBoards();
   const { toast } = useToast();
+  const { currentUserProfile, isLoading: isLoadingAuth } = useAuth();
+  const router = useRouter();
+
   const [isAddBillDialogOpen, setIsAddBillDialogOpen] = useState(false);
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
   const [billToDeleteId, setBillToDeleteId] = useState<string | null>(null);
+
+  const showBillsSectionEffective = currentUserProfile?.showBillsSection !== false; // Default to true
+
+  useEffect(() => {
+    // Redirect if the user has chosen to hide this section and auth is loaded
+    if (!isLoadingAuth && !showBillsSectionEffective) {
+      toast({
+        title: "Sektion Dold",
+        description: "Du har valt att dölja räkningssektionen. Du kan ändra detta i Kontoinställningar.",
+        variant: "default",
+      });
+      router.replace('/dashboard');
+    }
+  }, [isLoadingAuth, showBillsSectionEffective, router, toast]);
+
 
   const expenseCategories = useMemo(() => {
     return (activeBoard?.categories || []).filter(c => c.type === 'expense');
@@ -46,17 +66,16 @@ export default function BillsPage() {
     return bills.filter(b => b.isPaid).sort((a, b) => {
         const dateA = a.paidDate ? new Date(a.paidDate).getTime() : 0;
         const dateB = b.paidDate ? new Date(b.paidDate).getTime() : 0;
-        return dateB - dateA; // Sort by most recently paid
+        return dateB - dateA; 
     });
   }, [bills]);
 
   const handleAddBill = async (billSubmission: Omit<Bill, 'id' | 'userId'>) => {
-    const newBill = await addBill(billSubmission); // The hook now handles isPaid and paidDate
+    const newBill = await addBill(billSubmission); 
 
     if (newBill) {
       toast({ title: "Räkning Tillagd", description: `${newBill.title} har lagts till.`});
 
-      // If the bill was added as already paid, trigger transaction creation
       if (newBill.isPaid && newBill.paidDate) {
         if (!activeBoard) {
           toast({ title: "Fel", description: "Ingen aktiv tavla vald för att bokföra den betalda räkningen.", variant: "destructive" });
@@ -76,7 +95,7 @@ export default function BillsPage() {
         const transactionAdded = addTransactionToActiveBoard({
             title: newBill.title,
             amount: newBill.amount,
-            date: newBill.paidDate, // Use the paidDate from the bill
+            date: newBill.paidDate, 
             categoryId: targetCategory.id,
             description: `Automatisk transaktion från nyligen tillagd betald räkning: ${newBill.title} (ID: ${newBill.id})`,
         });
@@ -97,15 +116,17 @@ export default function BillsPage() {
     setEditingBill(bill);
   };
 
-  const handleUpdateBill = (updatedBillData: Bill) => {
-    const updatedBill = updateBill(updatedBillData);
+  const handleUpdateBill = async (updatedBillData: Bill) => { // Mark as async
+    const updatedBill = await updateBill(updatedBillData); // Await the update
     if (updatedBill) {
       toast({ title: "Räkning Uppdaterad", description: `${updatedBill.title} har uppdaterats.`});
+    } else {
+       toast({ title: "Fel", description: "Kunde inte uppdatera räkningen.", variant: "destructive"});
     }
     setEditingBill(null);
   };
   
-  const handleDeleteBillConfirm = () => {
+  const handleDeleteBillConfirm = async () => { // Mark as async
     if (billToDeleteId) {
       const billInfo = bills.find(b => b.id === billToDeleteId);
       if (!billInfo) {
@@ -124,12 +145,12 @@ export default function BillsPage() {
                  t.categoryId === billInfo.categoryId
         );
         if (transactionToDelete) {
-            deleteTransactionFromActiveBoard(transactionToDelete.id);
+            await deleteTransactionFromActiveBoard(transactionToDelete.id); // Await deletion
             transactionDeletedInfo = ` Den tillhörande transaktionen på tavlan '${activeBoard.name}' har också raderats.`;
         }
       }
       
-      deleteBillFromHook(billToDeleteId);
+      await deleteBillFromHook(billToDeleteId); // Await deletion
       toast({ title: "Räkning Raderad", description: `${billInfo.title} har raderats.${transactionDeletedInfo}`});
       setBillToDeleteId(null);
     }
@@ -140,23 +161,21 @@ export default function BillsPage() {
     if (!billToToggle) return;
 
     const originalIsPaid = billToToggle.isPaid;
-    // toggleBillStatusInHook now returns a Promise
-    toggleBillStatusInHook(billId).then(updatedBill => {
+    toggleBillStatusInHook(billId).then(async updatedBill => { // Mark inner function as async
         if (updatedBill && !originalIsPaid && updatedBill.isPaid) {
-            // Bill was just marked as paid
             if (!activeBoard) {
                 toast({ title: "Fel", description: "Ingen aktiv tavla vald för att bokföra räkningen.", variant: "destructive" });
-                toggleBillStatusInHook(billId); 
+                await toggleBillStatusInHook(billId); // Await toggle back
                 return;
             }
             if (!updatedBill.paidDate) {
                 toast({ title: "Fel", description: "Betaldatum saknas för räkningen.", variant: "destructive" });
-                toggleBillStatusInHook(billId); 
+                await toggleBillStatusInHook(billId); 
                 return; 
             }
             if (!updatedBill.categoryId) {
                 toast({ title: "Fel", description: "Kategori saknas för räkningen. Redigera räkningen och välj en kategori.", variant: "destructive" });
-                toggleBillStatusInHook(billId); 
+                await toggleBillStatusInHook(billId); 
                 return;
             }
 
@@ -167,7 +186,7 @@ export default function BillsPage() {
                 return;
             }
 
-            const transactionAdded = addTransactionToActiveBoard({
+            const transactionAdded = await addTransactionToActiveBoard({ // Await addition
                 title: updatedBill.title,
                 amount: updatedBill.amount, 
                 date: updatedBill.paidDate,
@@ -182,7 +201,6 @@ export default function BillsPage() {
             }
         
         } else if (updatedBill && originalIsPaid && !updatedBill.isPaid) {
-            // Bill was marked as unpaid
             if (activeBoard && updatedBill.id) {
                 const transactionToDelete = activeBoard.transactions.find(
                     t => t.description?.includes(`(ID: ${updatedBill.id})`) && 
@@ -191,7 +209,7 @@ export default function BillsPage() {
                         t.categoryId === updatedBill.categoryId
                 );
                 if (transactionToDelete) {
-                    deleteTransactionFromActiveBoard(transactionToDelete.id);
+                    await deleteTransactionFromActiveBoard(transactionToDelete.id); // Await deletion
                     toast({
                         title: "Räkning Omarkerad & Transaktion Raderad",
                         description: `${updatedBill.title} har markerats som obetald och den tillhörande transaktionen har tagits bort från tavlan '${activeBoard.name}'.`
@@ -209,13 +227,27 @@ export default function BillsPage() {
   };
 
 
-  if (isLoadingBills || isLoadingBoards) {
+  if (isLoadingAuth || isLoadingBills || isLoadingBoards) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="mr-2 h-8 w-8 animate-spin text-primary" /> Laddar data...
       </div>
     );
   }
+
+  if (!showBillsSectionEffective) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full space-y-4">
+        <EyeOff className="h-16 w-16 text-muted-foreground" />
+        <h2 className="text-2xl font-semibold">Räkningssektionen är Dold</h2>
+        <p className="text-muted-foreground">Du har valt att dölja denna sektion.</p>
+        <Button onClick={() => router.push('/dashboard/settings/account')}>
+          Gå till Kontoinställningar
+        </Button>
+      </div>
+    );
+  }
+
 
   return (
     <div className="space-y-6">

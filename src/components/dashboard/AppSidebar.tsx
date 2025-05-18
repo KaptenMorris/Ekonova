@@ -14,7 +14,7 @@ import {
   SidebarSeparator,
 } from '@/components/ui/sidebar';
 import { Logo } from '@/components/shared/Logo';
-import { useAuth } from '@/hooks/useMockAuth'; // Use useAuth
+import { useAuth } from '@/hooks/useMockAuth';
 import { LayoutDashboard, Lightbulb, Settings, LogOut, LineChart, ReceiptText, UserCircle, Trash2, ShieldAlert, ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePathname } from 'next/navigation';
@@ -34,29 +34,26 @@ import { useToast } from '@/hooks/use-toast';
 
 
 export function AppSidebar() {
-  const { logout, deleteAccount, currentUserEmail, currentUserName, currentUserAvatarUrl } = useAuth(); // Use useAuth
+  const { logout, deleteAccount, currentUserEmail, currentUserName, currentUserAvatarUrl, currentUserProfile } = useAuth();
   const { toast } = useToast();
   const pathname = usePathname();
   const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
 
+  const showBills = currentUserProfile?.showBillsSection !== false; // Default to true if undefined
+
   const menuItems = [
-    { href: '/dashboard', label: 'Kontrollpanel', icon: LayoutDashboard },
-    { href: '/dashboard/overview', label: 'Ekonomisk Översikt', icon: LineChart },
-    { href: '/dashboard/bills', label: 'Räkningar', icon: ReceiptText },
-    { href: '/dashboard/shopping', label: 'Handla', icon: ShoppingCart },
-    { href: '/dashboard/budget-ai', label: 'AI Budgetrådgivare', icon: Lightbulb },
-    // Settings link removed from here, handled by user profile click below
+    { href: '/dashboard', label: 'Kontrollpanel', icon: LayoutDashboard, show: true },
+    { href: '/dashboard/overview', label: 'Ekonomisk Översikt', icon: LineChart, show: true },
+    { href: '/dashboard/bills', label: 'Räkningar', icon: ReceiptText, show: showBills },
+    { href: '/dashboard/shopping', label: 'Handla', icon: ShoppingCart, show: true },
+    { href: '/dashboard/budget-ai', label: 'AI Budgetrådgivare', icon: Lightbulb, show: true },
   ];
 
   const userInitial = currentUserName ? currentUserName.charAt(0).toUpperCase() : (currentUserEmail ? currentUserEmail.charAt(0).toUpperCase() : 'A');
   const displayName = currentUserName || (currentUserEmail ? currentUserEmail.split('@')[0] : "Användare");
 
   const handleDeleteAccountConfirm = async () => {
-     // Note: deleteAccount in useAuth (Appwrite version) currently just logs out and shows a warning.
-     // Actual deletion requires backend implementation.
     await deleteAccount();
-    // The toast message might be adjusted based on whether it actually deletes or just logs out
-     // Toast might be shown within deleteAccount itself now.
     setIsDeleteAlertOpen(false);
   };
 
@@ -68,22 +65,23 @@ export function AppSidebar() {
       <SidebarContent className="flex-1 p-2">
         <SidebarMenu>
           {menuItems.map((item) => (
-            <SidebarMenuItem key={item.href}>
-              <Link href={item.href} legacyBehavior passHref>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))}
-                  tooltip={item.label}
-                >
-                  <a>
-                    <item.icon className="h-5 w-5" />
-                    <span>{item.label}</span>
-                  </a>
-                </SidebarMenuButton>
-              </Link>
-            </SidebarMenuItem>
+            item.show && (
+              <SidebarMenuItem key={item.href}>
+                <Link href={item.href} legacyBehavior passHref>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))}
+                    tooltip={item.label}
+                  >
+                    <a>
+                      <item.icon className="h-5 w-5" />
+                      <span>{item.label}</span>
+                    </a>
+                  </SidebarMenuButton>
+                </Link>
+              </SidebarMenuItem>
+            )
           ))}
-           {/* Explicit Settings link */}
            <SidebarMenuItem>
               <Link href="/dashboard/settings/account" legacyBehavior passHref>
                 <SidebarMenuButton
@@ -101,13 +99,11 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarContent>
 
-      <SidebarFooter className="p-2 mt-auto"> {/* Use mt-auto to push to bottom */}
+      <SidebarFooter className="p-2 mt-auto">
         <SidebarSeparator className="my-2"/>
-        {/* Make the user info section a link to account settings */}
         <Link href="/dashboard/settings/account" className="block hover:bg-muted/50 rounded-md transition-colors" title="Kontoinställningar">
             <div className="flex items-center gap-3 p-2 mb-2 cursor-pointer">
             <Avatar className="h-9 w-9">
-                 {/* Use currentUserAvatarUrl from useAuth */}
                 <AvatarImage src={currentUserAvatarUrl || undefined} alt={displayName} />
                 <AvatarFallback>{userInitial}</AvatarFallback>
             </Avatar>
@@ -132,7 +128,7 @@ export function AppSidebar() {
               </div>
               <AlertDialogTitle className="text-center">Är du helt säker?</AlertDialogTitle>
               <AlertDialogDescription className="text-center">
-                Denna åtgärd kommer permanent att radera ditt konto och all tillhörande data (tavlor, räkningar etc.). Detta kan inte ångras. (Obs: Nuvarande funktion loggar endast ut dig då radering kräver server-side logik).
+                Denna åtgärd kommer permanent att radera ditt konto och all tillhörande data (tavlor, räkningar etc.). Detta kan inte ångras.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="sm:justify-center">
