@@ -1,13 +1,13 @@
 
 "use client";
 
+import type { ReactNode} from 'react';
 import React, {
   createContext,
   useContext,
   useState,
   useEffect,
   useCallback,
-  type ReactNode
 } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -21,12 +21,12 @@ import {
   deleteUser as firebaseDeleteUser,
   updateProfile,
   type User as FirebaseUser,
-  GoogleAuthProvider, // Added
-  signInWithPopup,      // Added
-  getAdditionalUserInfo // Added
+  GoogleAuthProvider,
+  signInWithPopup,
+  // getAdditionalUserInfo // Not strictly needed for current implementation
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
-import { auth, db, firebaseConfigIsValid } from '@/lib/firebase';
+import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, Timestamp, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { auth, db, firebaseConfigIsValid } from '@/lib/firebase'; // Ensure auth and db are correctly exported and initialized
 import { useToast } from './use-toast';
 
 // User data structure stored in Firestore
@@ -67,7 +67,7 @@ interface AuthContextType {
   login: (email?: string, password?: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
   signup: (email?: string, password?: string, name?: string) => Promise<SignupResult>;
-  signInWithGoogle: () => Promise<LoginResult>; // Added
+  signInWithGoogle: () => Promise<LoginResult>;
   deleteAccount: () => Promise<void>;
   changePassword: (newPassword?: string) => Promise<ChangePasswordResult>;
   updateProfilePicture: (imageDataUri: string) => Promise<UpdateProfilePictureResult>;
@@ -84,7 +84,43 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const ensureUserProfileExists = useCallback(async (user: FirebaseUser) => {
+  const fetchUserProfile = useCallback(async (uid: string): Promise<UserProfile | null> => {
+    if (!firebaseConfigIsValid || !db) {
+      // console.warn("Firestore is not configured, cannot fetch user profile.");
+      return null;
+    }
+    const userDocRef = doc(db, 'users', uid);
+    try {
+      const userDocSnap = await getDoc(userDocRef);
+      if (userDocSnap.exists()) {
+        const profileData = userDocSnap.data();
+        return {
+          ...profileData,
+          createdAt: profileData.createdAt instanceof Timestamp ? profileData.createdAt.toDate().toISOString() : profileData.createdAt,
+        } as UserProfile;
+      }
+      return null;
+    } catch (e: any) {
+      console.error("Error fetching user profile from Firestore:", e);
+      if (e.name === 'FirebaseError' && (e.code === 'unavailable' || e.code === 'cancelled' || (e.message && e.message.toLowerCase().includes('offline')) || (e.message && e.message.toLowerCase().includes('failed to get document because the client is offline')) ) ) {
+          console.error(`Firestore fetchUserProfile network/offline error: ${e.message}.`);
+          // Avoid toasting here on initial load if offline to reduce noise
+          // toast({ title: "Nätverksfel", description: "Kunde inte ansluta till databasen. Kontrollera din internetanslutning.", variant: "destructive", duration: 7000 });
+      } else if (e.code === 0 || (e.message && e.message.toLowerCase().includes('failed to fetch'))) { // General fetch failure
+         console.error(`Firestore fetchUserProfile network/CORS error: ${e.message}. Check Firebase platform settings (CORS), network connection, and browser's network tab for more details.`);
+      } else {
+         console.error(`Firestore fetchUserProfile error (Code: ${e.code}): ${e.message}.`);
+      }
+      return null;
+    }
+  }, [toast]);
+
+
+  const ensureUserProfileExists = useCallback(async (user: FirebaseUser, isNewGoogleUser: boolean = false) => {
+    if (!firebaseConfigIsValid || !db) {
+      // console.warn("Firestore is not configured, cannot ensure user profile.");
+      return;
+    }
     const userDocRef = doc(db, 'users', user.uid);
     let profileToSet: UserProfile | null = null;
     try {
@@ -96,22 +132,21 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
           createdAt: profileData.createdAt instanceof Timestamp ? profileData.createdAt.toDate().toISOString() : profileData.createdAt,
         } as UserProfile;
       } else {
-        // If no profile doc, create one
         const newProfileData: UserProfile = {
           uid: user.uid,
           email: user.email,
-          name: user.displayName || 'Ny Användare', // Use Google's display name if available
-          avatarUrl: user.photoURL, // Use Google's photo URL if available
+          name: user.displayName || (isNewGoogleUser && user.email ? user.email.split('@')[0] : 'Ny Användare'),
+          avatarUrl: user.photoURL,
           createdAt: serverTimestamp(),
         };
         await setDoc(userDocRef, newProfileData);
-        profileToSet = { ...newProfileData, createdAt: new Date().toISOString() }; // Use current date for local state
+        profileToSet = { ...newProfileData, createdAt: new Date().toISOString() };
       }
       setUserProfile(profileToSet);
     } catch (error) {
-      console.error("Error fetching/creating user profile:", error);
+      console.error("Error fetching/creating user profile in Firestore:", error);
       toast({ title: "Profilfel", description: "Kunde inte ladda eller skapa användarprofil.", variant: "destructive" });
-      setUserProfile(null); // Reset profile on error
+      setUserProfile(null);
     }
   }, [toast]);
 
@@ -119,7 +154,6 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!firebaseConfigIsValid) {
       setIsLoading(false);
-      console.error("CRITICAL: Firebase is not configured correctly. Authentication and database features will not work.");
       return;
     }
 
@@ -150,8 +184,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
         return { success: false, errorKey: 'account_not_verified' };
       }
-      // Verified user, onAuthStateChanged handles profile and redirection is typically managed by useEffect in layouts
-      // router.push('/dashboard'); // Optionally redirect here
+      setIsLoading(false);
       return { success: true };
 
     } catch (e: any) {
@@ -159,6 +192,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       console.error("Firebase login error:", e);
       let errorKey: LoginResult['errorKey'] = 'generic_error';
       if (e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+        console.warn(`Login attempt failed for email: ${email} with Firebase code: ${e.code}. This usually means the email doesn't exist or the password was incorrect.`);
         errorKey = 'invalid_credentials';
       } else if (e.code === 'auth/user-disabled') {
         errorKey = 'user-disabled';
@@ -167,52 +201,65 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: false, errorKey };
     }
-  }, [router]); // Removed toast from here, caller should handle toasts
+  }, []); 
 
   const signInWithGoogle = useCallback(async (): Promise<LoginResult> => {
     if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     setIsLoading(true);
     const provider = new GoogleAuthProvider();
     try {
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      
-      // ensureUserProfileExists will be called by onAuthStateChanged,
-      // which is triggered by signInWithPopup's successful authentication.
-      // So, no need to call it explicitly here again if onAuthStateChanged is robust.
-      
-      // Redirection should be handled by useEffect in layouts after auth state changes
-      // router.push('/dashboard'); 
+      await signInWithPopup(auth, provider);
+      // ensureUserProfileExists will be called by onAuthStateChanged.
+      setIsLoading(false);
       return { success: true };
     } catch (error: any) {
       setIsLoading(false);
       console.error("Google Sign-In Error:", error);
-      toast({
-        title: "Google Inloggning Misslyckades",
-        description: error.message || "Kunde inte logga in med Google. Försök igen.",
-        variant: "destructive",
-      });
       if (error.code === 'auth/popup-closed-by-user') {
-        return { success: false, errorKey: 'generic_error' }; // Or a specific key for this
+         toast({
+            title: "Google Inloggning Avbruten",
+            description: "Inloggningsfönstret stängdes innan processen var klar.",
+            variant: "default",
+        });
+      } else if (error.code === 'auth/account-exists-with-different-credential') {
+         toast({
+            title: "Konto Finns Redan",
+            description: "Ett konto finns redan med denna e-postadress men med en annan inloggningsmetod. Försök logga in med den ursprungliga metoden.",
+            variant: "destructive",
+            duration: 7000,
+        });
+      } else {
+        toast({
+          title: "Google Inloggning Misslyckades",
+          description: error.message || "Kunde inte logga in med Google. Försök igen.",
+          variant: "destructive",
+        });
       }
       return { success: false, errorKey: 'generic_error' };
     }
-  }, [toast, router]);
+  }, [toast]);
 
 
   const logout = useCallback(async () => {
     if (!firebaseConfigIsValid) return;
     setIsLoading(true);
     try {
+      const currentUid = firebaseUser?.uid; // Get uid before signing out
       await signOut(auth);
+      setFirebaseUser(null);
+      setUserProfile(null);
+      if (currentUid && typeof window !== 'undefined') {
+         localStorage.removeItem(`ekonova-active-board-id-${currentUid}`);
+      }
       router.push('/login');
+      toast({ title: "Utloggad", description: "Du har loggats ut." });
     } catch (e) {
       console.error("Firebase logout error:", e);
       toast({ title: "Utloggning Misslyckades", description: "Kunde inte logga ut. Försök igen.", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
-  }, [router, toast]);
+  }, [router, toast, firebaseUser]); // Depend on firebaseUser to get its uid
 
   const signup = useCallback(async (email?: string, password?: string, name?: string): Promise<SignupResult> => {
     if (!firebaseConfigIsValid) return { success: false, messageKey: 'config_error' };
@@ -223,23 +270,21 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Update Firebase Auth profile
       await updateProfile(user, { displayName: name });
 
-      // Create Firestore user profile document
-      // This will be handled by onAuthStateChanged -> ensureUserProfileExists if the user object changes
-      // However, we can pre-emptively set it here for faster UI update, or rely on onAuthStateChanged
-      const userProfileData: UserProfile = {
-        uid: user.uid,
-        email: user.email,
-        name: name,
-        avatarUrl: user.photoURL, // Usually null at this point for email/pass
-        createdAt: serverTimestamp(),
-      };
-      await setDoc(doc(db, 'users', user.uid), userProfileData);
-      // To ensure local state is updated immediately without waiting for onAuthStateChanged full cycle
-      setUserProfile({ ...userProfileData, createdAt: new Date().toISOString()});
-
+      if (db) { // Ensure db is initialized
+        const userProfileData: UserProfile = {
+          uid: user.uid,
+          email: user.email,
+          name: name,
+          avatarUrl: user.photoURL, 
+          createdAt: serverTimestamp(),
+        };
+        await setDoc(doc(db, 'users', user.uid), userProfileData);
+        setUserProfile({ ...userProfileData, createdAt: new Date().toISOString()});
+      } else {
+        console.warn("Firestore db instance not available, skipping profile creation in DB for new user.");
+      }
 
       await sendEmailVerification(user);
       setIsLoading(false);
@@ -258,7 +303,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const resendVerification = useCallback(async (): Promise<{ success: boolean; errorKey?: string }> => {
     if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     
-    const currentUser = auth.currentUser; 
+    const currentUser = auth.currentUser;
     if (currentUser) {
       setIsLoading(true);
       try {
@@ -278,6 +323,28 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     }
   }, [toast]);
 
+ const deleteRelatedData = async (uid: string) => {
+    if (!db) {
+      console.warn("Firestore db instance not available, skipping deletion of related data.");
+      return;
+    }
+    const batch = writeBatch(db);
+
+    const boardsQuery = query(collection(db, "boards"), where("userId", "==", uid));
+    const boardsSnapshot = await getDocs(boardsQuery);
+    boardsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
+
+    const billsQuery = query(collection(db, "bills"), where("userId", "==", uid));
+    const billsSnapshot = await getDocs(billsQuery);
+    billsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
+    
+    const userProfileDocRef = doc(db, "users", uid);
+    batch.delete(userProfileDocRef);
+
+    await batch.commit();
+  };
+
+
   const deleteAccount = useCallback(async () => {
     if (!firebaseConfigIsValid) return;
     
@@ -285,18 +352,19 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     if (currentUser) {
       setIsLoading(true);
       try {
-        await deleteDoc(doc(db, 'users', currentUser.uid));
+        await deleteRelatedData(currentUser.uid);
         await firebaseDeleteUser(currentUser);
-        // onAuthStateChanged will clear local state (firebaseUser, userProfile).
-        router.push('/login'); // Redirect after successful deletion
-        toast({ title: "Konto Raderat", description: "Ditt konto har raderats permanent." });
+        
+        setFirebaseUser(null);
+        setUserProfile(null);
+        router.push('/login'); 
+        toast({ title: "Konto Raderat", description: "Ditt konto och all tillhörande data har raderats permanent." });
       } catch (e: any) {
         console.error("Firebase delete account error:", e);
         if (e.code === 'auth/requires-recent-login') {
           toast({ title: "Återautentisering Krävs", description: "Logga in igen och försök sedan radera kontot.", variant: "destructive" });
-          // Consider redirecting to login or showing a re-auth modal for reauthentication
         } else {
-          toast({ title: "Fel Vid Radering", description: "Kunde inte radera konto.", variant: "destructive" });
+          toast({ title: "Fel Vid Radering", description: "Kunde inte radera konto. Försök igen.", variant: "destructive" });
         }
       } finally {
         setIsLoading(false);
@@ -308,7 +376,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
   const changePassword = useCallback(async (newPassword?: string): Promise<ChangePasswordResult> => {
     if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
-    if (!newPassword) return { success: false, errorKey: 'generic_error' }; // Or more specific error
+    if (!newPassword) return { success: false, errorKey: 'generic_error' }; 
     
     const currentUser = auth.currentUser;
     if (currentUser) {
@@ -327,7 +395,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       }
     } else {
       setIsLoading(false);
-      return { success: false, errorKey: 'generic_error' }; // No user logged in
+      return { success: false, errorKey: 'generic_error' }; 
     }
   }, []);
 
@@ -335,31 +403,32 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     
     const currentUser = auth.currentUser;
-    if (currentUser) {
+    if (currentUser && db) {
       setIsLoading(true);
       try {
         await updateProfile(currentUser, { photoURL: imageDataUri });
+        
         const userDocRef = doc(db, 'users', currentUser.uid);
         await setDoc(userDocRef, { avatarUrl: imageDataUri }, { merge: true });
 
-        // Optimistically update local state or rely on onAuthStateChanged
         setUserProfile(prev => prev ? { ...prev, avatarUrl: imageDataUri } : null);
-        // FirebaseUser state will be updated by onAuthStateChanged if photoURL is part of it
+        setFirebaseUser(auth.currentUser); 
 
         setIsLoading(false);
         return { success: true };
       } catch (e: any) {
         setIsLoading(false);
         console.error("Firebase update profile picture error:", e);
-        return { success: false, errorKey: 'generic_error' }; // Could be 'storage_error' if using Firebase Storage
+        return { success: false, errorKey: 'generic_error' }; 
       }
     } else {
       setIsLoading(false);
-      return { success: false, errorKey: 'generic_error' }; // No user logged in
+      if (!currentUser) console.error("Update profile picture: No user logged in.");
+      if (!db) console.error("Update profile picture: Firestore db instance not available.");
+      return { success: false, errorKey: 'generic_error' }; 
     }
   }, []);
   
-  // Användaren är "autentiserad" i appen om Firebase har en användare OCH den användarens e-post är verifierad.
   const isAuthenticatedResult = firebaseConfigIsValid && !!firebaseUser && !!firebaseUser.emailVerified;
 
   return (
@@ -372,7 +441,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       signup,
-      signInWithGoogle, // Added
+      signInWithGoogle,
       deleteAccount,
       changePassword,
       updateProfilePicture,
