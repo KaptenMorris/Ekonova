@@ -23,7 +23,7 @@ const requiredEnvVars: Record<string, string | undefined> = {
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: firebaseStorageBucket,
   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: firebaseMessagingSenderId,
   NEXT_PUBLIC_FIREBASE_APP_ID: firebaseAppId,
-  NEXT_PUBLIC_FIREBASE_DATABASE_URL: firebaseDatabaseURL, // Making this required for clarity with Firestore
+  NEXT_PUBLIC_FIREBASE_DATABASE_URL: firebaseDatabaseURL,
 };
 
 let firebaseConfigIsValid = true;
@@ -38,7 +38,6 @@ for (const [key, value] of Object.entries(requiredEnvVars)) {
     );
     firebaseConfigIsValid = false;
   } else {
-    // Log the value if it's not the API key for easier debugging
     if (key !== 'NEXT_PUBLIC_FIREBASE_API_KEY') {
       console.log(`Firebase Config Check: ${key} = ${value}`);
     } else {
@@ -61,8 +60,8 @@ const firebaseConfig = {
   storageBucket: firebaseStorageBucket,
   messagingSenderId: firebaseMessagingSenderId,
   appId: firebaseAppId,
-  measurementId: firebaseMeasurementId, // Optional, can be undefined
-  databaseURL: firebaseDatabaseURL,     // Important for Firestore, especially if region-specific
+  measurementId: firebaseMeasurementId,
+  databaseURL: firebaseDatabaseURL,
 };
 
 // Log the actual config being used (except API key for security)
@@ -71,7 +70,7 @@ console.log("Attempting Firebase initialization with effective config (API Key m
   apiKey: firebaseConfig.apiKey ? '****** (set)' : 'NOT SET or invalid',
 });
 
-let app: FirebaseApp = {} as FirebaseApp; // Initialize with an empty object type assertion
+let app: FirebaseApp = {} as FirebaseApp;
 let authInstance: Auth = {} as Auth;
 let dbInstance: Firestore = {} as Firestore;
 let storageInstance: FirebaseStorage = {} as FirebaseStorage;
@@ -80,13 +79,17 @@ if (firebaseConfigIsValid) {
   if (!getApps().length) {
     try {
       app = initializeApp(firebaseConfig);
-      console.log("Firebase App object after initializeApp:", app); // Log the app object
-      // Robust check for a valid app object
-      if (app && app.name && typeof app.options === 'object' && app.options.projectId) {
+      console.log("Firebase App object after initializeApp:", app);
+      if (app && app.name && typeof app.options === 'object' && app.options.projectId === firebaseProjectId) {
         console.log("Firebase App initialized successfully. App name:", app.name, "Project ID from app.options:", app.options.projectId);
         firebaseAppWasInitialized = true;
       } else {
-        console.error("Firebase Core App Initialization WARNING: initializeApp did not return a valid app object or the app object is empty/malformed. This often means core config like API_KEY or PROJECT_ID is incorrect in .env.local. App object:", app);
+        console.error(
+          "Firebase Core App Initialization WARNING: initializeApp did not return a valid app object, or the app's projectId does not match the one from environment variables. This often means core config like API_KEY or PROJECT_ID is incorrect in .env.local. App object:",
+          app,
+          "Expected projectId:", firebaseProjectId,
+          "Actual projectId in app.options:", app?.options?.projectId
+        );
         firebaseAppWasInitialized = false;
       }
     } catch (error: any) {
@@ -96,29 +99,27 @@ if (firebaseConfigIsValid) {
   } else {
     app = getApps()[0];
     console.log("Existing Firebase App instance reused. App name:", app.name);
-    // Assuming existing app was initialized correctly
-    if (app && app.name && typeof app.options === 'object' && app.options.projectId) {
+    if (app && app.name && typeof app.options === 'object' && app.options.projectId === firebaseProjectId) {
         firebaseAppWasInitialized = true;
     } else {
-        console.warn("Existing Firebase App instance appears invalid or incomplete. Forcing re-check.");
-        firebaseAppWasInitialized = false; // This might be too aggressive, but safer for debugging
+        console.warn("Existing Firebase App instance appears invalid or incomplete. App object:", app, "Expected projectId:", firebaseProjectId);
+        firebaseAppWasInitialized = false;
     }
   }
 
-  if (firebaseAppWasInitialized && app && app.name && typeof app.options === 'object' && app.options.projectId) { // Ensure app is valid
+  if (firebaseAppWasInitialized && app && app.options?.projectId) {
     try {
       authInstance = getAuth(app);
       console.log("Firebase Auth service initialized.");
     } catch (e: any) {
       console.error("Firebase Auth Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
-      // authInstance remains {} as Auth
     }
 
     try {
       console.log("Attempting to initialize Firestore... Firebase App Name:", app.name, "App Options (PROJECT_ID check):", app.options?.projectId);
+      console.log("App object being passed to getFirestore:", app);
       dbInstance = getFirestore(app);
-      // Check if dbInstance looks like a valid Firestore instance
-      if (dbInstance && typeof dbInstance.collection === 'function' && typeof (dbInstance as any).app === 'object' && (dbInstance as any).app.options.projectId === app.options.projectId) {
+      if (dbInstance && typeof dbInstance.collection === 'function' && (dbInstance as any).app?.options?.projectId === app.options.projectId) {
         console.log("Firebase Firestore service initialized SUCCESSFULLY. Project ID from Firestore instance:", (dbInstance as any).app.options.projectId);
         firestoreWasInitialized = true;
       } else {
@@ -135,11 +136,10 @@ if (firebaseConfigIsValid) {
       console.log("Firebase Storage service initialized.");
     } catch (e: any) {
       console.error("Firebase Storage Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
-      // storageInstance remains {} as FirebaseStorage
     }
   } else if (firebaseConfigIsValid) {
     console.error("Firebase app object is NOT available or valid AFTER initialization attempt, despite initial config seeming valid. Firebase services (Auth, Firestore, Storage) will not be initialized. This STRONGLY indicates an issue with your core Firebase config in .env.local (API_KEY, PROJECT_ID, etc.).");
-    firebaseAppWasInitialized = false; // Ensure this is false if app object isn't good
+    firebaseAppWasInitialized = false;
     firestoreWasInitialized = false;
   }
 } else {
@@ -162,6 +162,7 @@ if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitial
   *                                                                                                                                                *
   *   >>> ACTION REQUIRED - CHECK THESE CAREFULLY:                                                                                                   *
   *   1. REVIEW CONSOLE LOGS ABOVE THIS MESSAGE: Look for specific errors about which environment variables are missing or invalid.                 *
+  *      Pay special attention to the log for 'Firebase App object after initializeApp:' and if 'app.options.projectId' matches your expected ID.   *
   *   2. '.env.local' FILE: Ensure ALL 'NEXT_PUBLIC_FIREBASE_...' variables are CORRECT and match your Firebase project.                            *
   *      - NEXT_PUBLIC_FIREBASE_API_KEY: Must be exact.                                                                                             *
   *      - NEXT_PUBLIC_FIREBASE_PROJECT_ID: Must be exact.                                                                                          *
@@ -184,12 +185,11 @@ if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitial
   **************************************************************************************************************************************************
   `;
   console.error(CRITICAL_ERROR_MESSAGE);
-  // Ensure exported services reflect the failure state if critical initialization failed
-  if (!firestoreWasInitialized) dbInstance = {} as Firestore; // Ensure db is an empty object if not initialized
+  if (!firestoreWasInitialized) dbInstance = {} as Firestore;
   if (!firebaseAppWasInitialized) {
-    authInstance = {} as Auth; // Ensure auth is an empty object
-    storageInstance = {} as FirebaseStorage; // Ensure storage is an empty object
-    dbInstance = {} as Firestore; // dbInstance is definitely not going to be valid if app itself failed
+    authInstance = {} as Auth;
+    storageInstance = {} as FirebaseStorage;
+    dbInstance = {} as Firestore;
   }
 }
 
@@ -203,11 +203,11 @@ console.log(`--------------------------------------`);
 
 
 export {
-  app, // Exporting app can be useful for more advanced Firebase SDK usage
+  app,
   authInstance as auth,
   dbInstance as db,
   storageInstance as storage,
-  firebaseConfigIsValid, // Exporting flags for use in other parts of the app
+  firebaseConfigIsValid,
   firebaseAppWasInitialized,
   firestoreWasInitialized
 };
