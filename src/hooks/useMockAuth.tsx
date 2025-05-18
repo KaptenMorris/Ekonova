@@ -23,11 +23,13 @@ import {
   type User as FirebaseUser,
   GoogleAuthProvider,
   signInWithPopup,
+  reauthenticateWithCredential,
+  EmailAuthProvider
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, deleteDoc, serverTimestamp, Timestamp, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import { auth, db, firebaseConfigIsValid } from '@/lib/firebase'; 
+import { auth, db, firebaseConfigIsValid } from '@/lib/firebase'; // Import firebaseConfigIsValid
 import { useToast } from './use-toast';
-import type { UserProfile } from '@/types'; // Import UserProfile type
+import type { UserProfile } from '@/types';
 
 interface LoginResult {
   success: boolean;
@@ -60,7 +62,7 @@ interface AuthContextType {
   currentUserEmail: string | null;
   currentUserName: string | null;
   currentUserAvatarUrl: string | null;
-  currentUserProfile: UserProfile | null; // Expose full profile
+  currentUserProfile: UserProfile | null;
   userId: string | null;
   login: (email?: string, password?: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
@@ -84,8 +86,9 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   const fetchUserProfile = useCallback(async (uid: string): Promise<UserProfile | null> => {
-    if (!firebaseConfigIsValid || !db) {
-      console.warn("Firestore is not configured, cannot fetch user profile.");
+    if (!firebaseConfigIsValid || !db || Object.keys(db).length === 0) {
+      console.error("Firestore is not available due to invalid Firebase configuration. Aborting fetchUserProfile.");
+      // Removed toast from here to avoid spamming if this is called frequently during bad config
       return null;
     }
     const userDocRef = doc(db, 'users', uid);
@@ -94,15 +97,15 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       if (userDocSnap.exists()) {
         const profileData = userDocSnap.data();
         return {
-          uid: uid, // Ensure uid is part of the returned object
+          uid: uid,
           email: profileData.email || null,
           name: profileData.name || null,
           avatarUrl: profileData.avatarUrl || null,
           createdAt: profileData.createdAt instanceof Timestamp ? profileData.createdAt.toDate().toISOString() : profileData.createdAt,
-          showBillsSection: typeof profileData.showBillsSection === 'boolean' ? profileData.showBillsSection : true, // Default to true
+          showBillsSection: typeof profileData.showBillsSection === 'boolean' ? profileData.showBillsSection : true,
         } as UserProfile;
       }
-      console.warn(`User profile not found in Firestore for UID: ${uid}. A new one might be created.`);
+      console.warn(`User profile not found in Firestore for UID: ${uid}. A new one might be created if this is a new user.`);
       return null;
     } catch (e: any) {
       console.error("Error fetching user profile from Firestore:", e);
@@ -119,12 +122,18 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         }
       return null;
     }
-  }, []);
+  }, [toast]); // Added toast to dependency array
 
 
   const ensureUserProfileExists = useCallback(async (user: FirebaseUser, isNewGoogleUser: boolean = false) => {
-    if (!firebaseConfigIsValid || !db) {
-      console.warn("Firestore is not configured, cannot ensure user profile.");
+     if (!firebaseConfigIsValid || !db || Object.keys(db).length === 0) {
+      console.error("Firestore is not available due to invalid Firebase configuration. Aborting ensureUserProfileExists.");
+      toast({
+        title: "Profilfel",
+        description: "Kunde inte skapa eller ladda användarprofil på grund av konfigurationsfel.",
+        variant: "destructive",
+        duration: 7000,
+      });
       return;
     }
     const userDocRef = doc(db, 'users', user.uid);
@@ -147,11 +156,13 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
           email: user.email,
           name: user.displayName || (isNewGoogleUser && user.email ? user.email.split('@')[0] : 'Ny Användare'),
           avatarUrl: user.photoURL,
-          createdAt: serverTimestamp(),
-          showBillsSection: true, // Default for new users
+          createdAt: serverTimestamp(), // Use serverTimestamp for new profiles
+          showBillsSection: true,
         };
         await setDoc(userDocRef, newProfileData);
-        profileToSet = { ...newProfileData, createdAt: new Date().toISOString() }; 
+        // For createdAt, if we use serverTimestamp, we won't have the exact value client-side immediately.
+        // We can either refetch or use an optimistic local date.
+        profileToSet = { ...newProfileData, createdAt: new Date().toISOString() };
       }
       setUserProfile(profileToSet);
     } catch (error) {
@@ -165,7 +176,8 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!firebaseConfigIsValid) {
       setIsLoading(false);
-      console.warn("Firebase configuration is invalid. Auth services will not function.");
+      console.warn("Firebase configuration is invalid. Auth services will not function effectively.");
+      // No toast here, firebase.ts handles the critical console error.
       return;
     }
 
@@ -173,13 +185,18 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (user) {
-        // Fetch existing profile or create if it doesn't exist
-        const existingProfile = await fetchUserProfile(user.uid);
-        if (existingProfile) {
-          setUserProfile(existingProfile);
+        if (user.emailVerified) { // Only fetch/ensure profile if email is verified
+          const existingProfile = await fetchUserProfile(user.uid);
+          if (existingProfile) {
+            setUserProfile(existingProfile);
+          } else {
+            await ensureUserProfileExists(user);
+          }
         } else {
-          // If no profile, ensure one is created (especially for new sign-ups or first Google sign-in)
-          await ensureUserProfileExists(user);
+          // User exists but email not verified.
+          // Set userProfile to null or a minimal unverified profile if needed by UI.
+          setUserProfile(null); 
+          console.log(`User ${user.uid} is authenticated but email not verified. Profile not fully loaded.`);
         }
       } else {
         setUserProfile(null);
@@ -187,7 +204,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     });
     return () => unsubscribe();
-  }, [fetchUserProfile, ensureUserProfileExists]);
+  }, [fetchUserProfile, ensureUserProfileExists]); // Removed firebaseConfigIsValid from deps as it's module-level const
 
 
   const login = useCallback(async (email?: string, password?: string): Promise<LoginResult> => {
@@ -199,11 +216,16 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       if (!userCredential.user.emailVerified) {
         // User is technically logged in by Firebase, but email not verified.
-        // Let UI handle verification prompt. User state is managed by onAuthStateChanged.
+        // onAuthStateChanged will set firebaseUser. Let UI handle verification prompt.
+        // No explicit logout here, allows resendVerification to work.
         setIsLoading(false);
         return { success: false, errorKey: 'account_not_verified' };
       }
-      // If email is verified, onAuthStateChanged would have called ensureUserProfileExists
+      // If email is verified, onAuthStateChanged would have called ensureUserProfileExists and set userProfile.
+      // Potentially trigger a profile fetch here if onAuthStateChanged hasn't fully completed its async work.
+      if (userCredential.user.uid && !userProfile) {
+         await fetchUserProfile(userCredential.user.uid).then(setUserProfile);
+      }
       setIsLoading(false);
       return { success: true };
 
@@ -221,7 +243,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: false, errorKey };
     }
-  }, []); 
+  }, [fetchUserProfile, userProfile]); 
 
   const signInWithGoogle = useCallback(async (): Promise<LoginResult> => {
     if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
@@ -229,9 +251,8 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      // New user or existing, ensureUserProfileExists will be called by onAuthStateChanged.
-      // const isNewUser = getAdditionalUserInfo(result)?.isNewUser;
-      // await ensureUserProfileExists(result.user, isNewUser); // onAuthStateChanged handles this now
+      // onAuthStateChanged will handle setting firebaseUser and calling ensureUserProfileExists.
+      // Google users are typically auto-verified.
       setIsLoading(false);
       return { success: true };
     } catch (error: any) {
@@ -259,7 +280,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: false, errorKey: 'generic_error' };
     }
-  }, [toast]);
+  }, [toast, ensureUserProfileExists]);
 
 
   const logout = useCallback(async () => {
@@ -293,20 +314,22 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
       await updateProfile(user, { displayName: name });
 
-      // Create user profile in Firestore. onAuthStateChanged will also try to fetch/create.
-      if (db) { 
+      if (!firebaseConfigIsValid || !db || Object.keys(db).length === 0) { // Check db before use
+        console.error("Firestore is not available due to invalid Firebase configuration. Cannot create user profile in DB.");
+        toast({ title: "Profilfel", description: "Kunde inte skapa användarprofil i databasen på grund av konfigurationsfel.", variant: "destructive", duration: 7000 });
+        // Proceed with email verification even if DB profile creation fails for now
+      } else {
         const userProfileData: UserProfile = {
           uid: user.uid,
           email: user.email,
           name: name,
           avatarUrl: user.photoURL, 
           createdAt: serverTimestamp(),
-          showBillsSection: true, // Default for new users
+          showBillsSection: true,
         };
         await setDoc(doc(db, 'users', user.uid), userProfileData);
-        setUserProfile({ ...userProfileData, createdAt: new Date().toISOString()}); // Optimistic update for local state
-      } else {
-        console.warn("Firestore db instance not available, skipping profile creation in DB for new user.");
+        // Optimistic update for local state - createdAt will be an estimate.
+        setUserProfile({ ...userProfileData, createdAt: new Date().toISOString()});
       }
 
       await sendEmailVerification(user);
@@ -326,7 +349,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const resendVerification = useCallback(async (): Promise<{ success: boolean; errorKey?: string }> => {
     if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     
-    const currentUser = auth.currentUser; // Get current user from auth, not state, for this action
+    const currentUser = auth.currentUser; 
     if (currentUser) {
       if (currentUser.emailVerified) {
         toast({ title: "E-post Redan Verifierad", description: "Din e-postadress är redan verifierad.", variant: "default" });
@@ -351,24 +374,32 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
  const deleteRelatedData = async (uidToDelete: string) => {
-    if (!db || !firebaseConfigIsValid) {
+    if (!firebaseConfigIsValid || !db || Object.keys(db).length === 0) {
       console.warn("Firestore db instance not available or Firebase not configured, skipping deletion of related data.");
-      return;
+      toast({ title: "Fel", description: "Kunde inte radera databasdata p.g.a. konfigurationsfel.", variant: "destructive" });
+      return false; // Indicate failure
     }
     const batch = writeBatch(db);
 
-    const boardsQuery = query(collection(db, "boards"), where("userId", "==", uidToDelete));
-    const boardsSnapshot = await getDocs(boardsQuery);
-    boardsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
+    try {
+      const boardsQuery = query(collection(db, "boards"), where("userId", "==", uidToDelete));
+      const boardsSnapshot = await getDocs(boardsQuery);
+      boardsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
 
-    const billsQuery = query(collection(db, "bills"), where("userId", "==", uidToDelete));
-    const billsSnapshot = await getDocs(billsQuery);
-    billsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
-    
-    const userProfileDocRef = doc(db, "users", uidToDelete);
-    batch.delete(userProfileDocRef);
+      const billsQuery = query(collection(db, "bills"), where("userId", "==", uidToDelete));
+      const billsSnapshot = await getDocs(billsQuery);
+      billsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref));
+      
+      const userProfileDocRef = doc(db, "users", uidToDelete);
+      batch.delete(userProfileDocRef);
 
-    await batch.commit();
+      await batch.commit();
+      return true; // Indicate success
+    } catch (error) {
+      console.error("Error deleting related Firestore data:", error);
+      toast({ title: "Fel", description: "Kunde inte radera all tillhörande data från databasen.", variant: "destructive" });
+      return false; // Indicate failure
+    }
   };
 
 
@@ -377,13 +408,18 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     
     const currentUser = auth.currentUser;
     if (currentUser) {
-      const uidToDelete = currentUser.uid; // Capture UID before potential logout/deletion
+      const uidToDelete = currentUser.uid;
       setIsLoading(true);
       try {
-        await deleteRelatedData(uidToDelete); 
+        const dataDeletedSuccessfully = await deleteRelatedData(uidToDelete); 
+        if (!dataDeletedSuccessfully) {
+           // Optionally, decide if you want to proceed with auth user deletion if DB deletion fails.
+           // For now, we'll proceed but the user might have orphaned data if this part fails.
+           console.warn("Deletion of related Firestore data failed or was incomplete. Auth user deletion will still be attempted.");
+        }
+        
         await firebaseDeleteUser(currentUser);    
         
-        // State updates (firebaseUser, userProfile) handled by onAuthStateChanged
         const activeIdKey = `ekonova-active-board-id-${uidToDelete}`;
         if (typeof window !== 'undefined') localStorage.removeItem(activeIdKey);
 
@@ -433,16 +469,24 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     
     const currentUser = auth.currentUser;
-    if (currentUser && db) {
+    if (currentUser) {
+       if (!db || Object.keys(db).length === 0) { // Check db before use
+         console.error("Firestore is not available due to invalid Firebase configuration. Cannot update profile picture in DB.");
+         toast({ title: "Profilfel", description: "Kunde inte spara profilbild i databasen p.g.a. konfigurationsfel.", variant: "destructive", duration: 7000 });
+         return { success: false, errorKey: 'config_error' };
+       }
       setIsLoading(true);
       try {
+        // Update in Firebase Auth (if photoURL is the intended use)
         await updateProfile(currentUser, { photoURL: imageDataUri });
         
+        // Update in Firestore 'users' collection
         const userDocRef = doc(db, 'users', currentUser.uid);
         await setDoc(userDocRef, { avatarUrl: imageDataUri }, { merge: true });
 
+        // Optimistically update local state
         setUserProfile(prev => prev ? { ...prev, avatarUrl: imageDataUri } : null);
-        setFirebaseUser(auth.currentUser); 
+        setFirebaseUser(auth.currentUser); // Refresh firebaseUser state which might hold old photoURL
 
         setIsLoading(false);
         return { success: true };
@@ -453,17 +497,20 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       }
     } else {
       setIsLoading(false);
-      if (!currentUser) console.error("Update profile picture: No user logged in.");
-      if (!db) console.error("Update profile picture: Firestore db instance not available.");
       return { success: false, errorKey: 'generic_error' }; 
     }
-  }, []);
+  }, [toast]); // Added toast
 
   const updateUserPreferences = useCallback(async (preferences: Partial<Pick<UserProfile, 'showBillsSection'>>): Promise<UpdateUserPreferencesResult> => {
-    if (!firebaseConfigIsValid || !db) return { success: false, errorKey: 'config_error' };
+    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
     
     const currentUser = auth.currentUser;
     if (currentUser) {
+      if (!db || Object.keys(db).length === 0) { // Check db before use
+        console.error("Firestore is not available due to invalid Firebase configuration. Cannot update user preferences.");
+        toast({ title: "Inställningsfel", description: "Kunde inte spara inställningar p.g.a. konfigurationsfel.", variant: "destructive", duration: 7000 });
+        return { success: false, errorKey: 'config_error' };
+      }
       setIsLoading(true);
       const userDocRef = doc(db, 'users', currentUser.uid);
       try {
@@ -479,8 +526,9 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
     } else {
       return { success: false, errorKey: 'not_found' };
     }
-  }, []);
+  }, [toast]); // Added toast
   
+  // Check if firebaseUser exists AND email is verified for isAuthenticated
   const isAuthenticatedResult = firebaseConfigIsValid && !!firebaseUser && !!firebaseUser.emailVerified;
 
   return (
@@ -514,3 +562,4 @@ export function useAuth() {
   }
   return context;
 }
+

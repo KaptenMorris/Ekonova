@@ -136,6 +136,7 @@ if (!firebaseConfigIsValid) {
   2. Firebase Console:
      - Is Firestore Database CREATED and ENABLED for your project ('${firebaseProjectId || 'PROJECT_ID_MISSING!'}')?
      - Is "Email/Password" Authentication ENABLED under Authentication -> Sign-in method?
+     - Is "Google" Authentication ENABLED under Authentication -> Sign-in method (if you use Google Sign-In)?
   3. Server Restart: You MUST restart your Next.js development server after
      any changes to '.env.local'.
 
@@ -146,8 +147,7 @@ if (!firebaseConfigIsValid) {
   `;
   console.error(CRITICAL_ERROR_MESSAGE);
   // Ensure exported services are indeed "empty" or clearly indicate failure
-  // This helps prevent runtime errors if parts of the app try to use them when invalid.
-  authInstance = {} as Auth; // Or throw if accessed when invalid
+  authInstance = {} as Auth;
   dbInstance = {} as Firestore;
   storageInstance = {} as FirebaseStorage;
 }
