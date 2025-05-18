@@ -23,7 +23,7 @@ const requiredEnvVars: Record<string, string | undefined> = {
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: firebaseStorageBucket,
   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: firebaseMessagingSenderId,
   NEXT_PUBLIC_FIREBASE_APP_ID: firebaseAppId,
-  NEXT_PUBLIC_FIREBASE_DATABASE_URL: firebaseDatabaseURL, // Explicitly required for Firestore
+  NEXT_PUBLIC_FIREBASE_DATABASE_URL: firebaseDatabaseURL,
 };
 
 let firebaseConfigIsValid = true;
@@ -38,7 +38,8 @@ for (const [key, value] of Object.entries(requiredEnvVars)) {
     );
     firebaseConfigIsValid = false;
   } else {
-    if (key !== 'NEXT_PUBLIC_FIREBASE_API_KEY') { // Don't log the actual API key value
+    // Log the value if it's not the API key for easier debugging
+    if (key !== 'NEXT_PUBLIC_FIREBASE_API_KEY') {
       console.log(`Firebase Config Check: ${key} = ${value}`);
     } else {
       console.log(`Firebase Config Check: ${key} = ****** (set)`);
@@ -79,12 +80,12 @@ if (firebaseConfigIsValid) {
   if (!getApps().length) {
     try {
       app = initializeApp(firebaseConfig);
-      console.log("Firebase App object after initializeApp:", app); // Log the app object
-      if (app && app.name) { // Check if app object seems valid
-        console.log("Firebase App initialized successfully. App name:", app.name);
+      console.log("Firebase App object after initializeApp:", app);
+      if (app && app.name && Object.keys(app).length > 0 && typeof app.options === 'object' && app.options.projectId) { // More robust check
+        console.log("Firebase App initialized successfully. App name:", app.name, "Project ID from app.options:", app.options.projectId);
         firebaseAppWasInitialized = true;
       } else {
-        console.error("Firebase Core App Initialization WARNING: initializeApp did not return a valid app object. App object:", app);
+        console.error("Firebase Core App Initialization WARNING: initializeApp did not return a valid app object or the app object is empty. This often means core config like API_KEY or PROJECT_ID is incorrect in .env.local. App object:", app);
         firebaseAppWasInitialized = false;
       }
     } catch (error: any) {
@@ -97,7 +98,7 @@ if (firebaseConfigIsValid) {
     firebaseAppWasInitialized = true; // Assume existing app was initialized correctly
   }
 
-  if (firebaseAppWasInitialized && app && app.name) {
+  if (firebaseAppWasInitialized && app && app.name && Object.keys(app).length > 0 && typeof app.options === 'object' && app.options.projectId) {
     try {
       authInstance = getAuth(app);
       console.log("Firebase Auth service initialized.");
@@ -108,8 +109,7 @@ if (firebaseConfigIsValid) {
     try {
       console.log("Attempting to initialize Firestore... App object being passed to getFirestore:", app);
       dbInstance = getFirestore(app);
-      // Basic check if dbInstance looks like a Firestore instance
-      if (dbInstance && typeof dbInstance.collection === 'function') {
+      if (dbInstance && typeof dbInstance.collection === 'function' && typeof (dbInstance as any).app === 'object') { // Check if dbInstance looks like a Firestore instance
         console.log("Firebase Firestore service initialized SUCCESSFULLY.");
         firestoreWasInitialized = true;
       } else {
@@ -128,8 +128,8 @@ if (firebaseConfigIsValid) {
       console.error("Firebase Storage Initialization Error:", e.message || e, "Code:", e.code || 'N/A');
     }
   } else if (firebaseConfigIsValid) { 
-    console.error("Firebase app object is not available or valid AFTER initialization attempt, despite initial config seeming valid. Firebase services (Auth, Firestore, Storage) will not be initialized.");
-    firebaseAppWasInitialized = false; // Ensure this is false if app object is bad
+    console.error("Firebase app object is not available or valid AFTER initialization attempt, despite initial config seeming valid. Firebase services (Auth, Firestore, Storage) will not be initialized. This STRONGLY indicates an issue with your core Firebase config in .env.local (API_KEY, PROJECT_ID, etc.).");
+    firebaseAppWasInitialized = false;
     firestoreWasInitialized = false;
   }
 } else {
@@ -146,24 +146,24 @@ if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitial
   *                                                                                                                                                *
   *   One or more Firebase services (especially Firestore if 'firestoreWasInitialized: false' below) are NOT correctly initialized.                *
   *   This is EXTREMELY LIKELY due to:                                                                                                             *
-  *     1. Missing/incorrect environment variables in your '.env.local' file.                                                                      *
-  *     2. Firestore Database NOT CREATED/ENABLED in your Firebase Project Console.                                                                *
-  *     3. Incorrect Firestore Database URL or Project ID.                                                                                           *
+  *     1. Missing/incorrect environment variables in your '.env.local' file (VERIFY THEM METICULOUSLY!).                                          *
+  *     2. Firestore Database NOT CREATED/ENABLED in your Firebase Project Console (GO TO FIREBASE CONSOLE -> Firestore Database -> Create database). *
+  *     3. Incorrect Firestore Database URL or Project ID in '.env.local'.                                                                         *
   *                                                                                                                                                *
   *   >>> ACTION REQUIRED - CHECK THESE CAREFULLY:                                                                                                   *
-  *   1. REVIEW CONSOLE LOGS ABOVE: Look for specific errors about which environment variables are missing or invalid (e.g., API_KEY, PROJECT_ID).  *
+  *   1. REVIEW CONSOLE LOGS ABOVE THIS MESSAGE: Look for specific errors about which environment variables are missing or invalid.                 *
   *   2. '.env.local' FILE: Ensure ALL 'NEXT_PUBLIC_FIREBASE_...' variables are CORRECT and match your Firebase project.                            *
   *      - NEXT_PUBLIC_FIREBASE_PROJECT_ID: Must be exact.                                                                                          *
-  *      - NEXT_PUBLIC_FIREBASE_DATABASE_URL: For default region: 'https://<YOUR-PROJECT-ID>.firebaseio.com'. For specific region (e.g., europe-west1): 'https://<YOUR-PROJECT-ID>.<REGION>.firebasedatabase.app'. *
+  *      - NEXT_PUBLIC_FIREBASE_DATABASE_URL: For default region: 'https://<YOUR-PROJECT-ID>.firebaseio.com'. For specific region (e.g., europe-west1): 'https://<YOUR-PROJECT-ID>.<REGION>.firebasedatabase.app'. Double-check this against your Firestore database's region in the Firebase console. *
   *   3. FIREBASE CONSOLE -> Firestore Database:                                                                                                   *
   *      - Is a Firestore database CREATED? If it says "Create database", YOU MUST CREATE IT.                                                        *
-  *      - Note the REGION of your Firestore database. Ensure it matches your DATABASE_URL if you use a region-specific one.                        *
+  *      - Note the REGION of your Firestore database.                                                                                                *
   *   4. SERVER RESTART: You MUST restart your Next.js development server (Ctrl+C, then 'npm run dev') after ANY changes to '.env.local'.         *
   *                                                                                                                                                *
   *   >>> CURRENT INITIALIZATION STATUS:                                                                                                             *
   *       - firebaseConfigIsValid:   ${firebaseConfigIsValid}                                                                                                *
-  *       - firebaseAppWasInitialized: ${firebaseAppWasInitialized}                                                                                            *
-  *       - firestoreWasInitialized: ${firestoreWasInitialized} (If false, this is a MAJOR problem for database operations)                                  *
+  *       - firebaseAppWasInitialized: ${firebaseAppWasInitialized} (If false, core Firebase app did not start)                                                              *
+  *       - firestoreWasInitialized: ${firestoreWasInitialized} (If false, Firestore service is not ready. This is a MAJOR problem for database operations)       *
   *                                                                                                                                                *
   *   Your app WILL NOT function correctly regarding data storage or authentication until these issues are resolved.                                *
   *   "Client is offline" or "getFirestore() did not return a valid instance" errors are SYMPTOMS of this underlying initialization failure.       *
@@ -172,10 +172,12 @@ if (!firebaseConfigIsValid || !firebaseAppWasInitialized || !firestoreWasInitial
   `;
   console.error(CRITICAL_ERROR_MESSAGE);
   // Ensure exported services reflect the failure state if critical initialization failed
-  if (!firestoreWasInitialized) dbInstance = {} as Firestore; // Ensure db is an empty object if Firestore fails
+  if (!firestoreWasInitialized) dbInstance = {} as Firestore;
   if (!firebaseAppWasInitialized) {
     authInstance = {} as Auth;
     storageInstance = {} as FirebaseStorage;
+    // If the app itself didn't initialize, dbInstance is definitely not going to be valid.
+    dbInstance = {} as Firestore; 
   }
 }
 
@@ -183,7 +185,7 @@ console.log(`--- Firebase Initialization FINAL STATUS ---`);
 console.log(`firebaseConfigIsValid: ${firebaseConfigIsValid}`);
 console.log(`firebaseAppWasInitialized: ${firebaseAppWasInitialized}`);
 console.log(`firestoreWasInitialized: ${firestoreWasInitialized}`);
-console.log(`Exporting db object type: ${typeof dbInstance}, looks like Firestore instance: ${dbInstance && typeof dbInstance.collection === 'function'}`);
+console.log(`Exporting db object. Is it a valid Firestore instance (should have a .collection method)? ${dbInstance && typeof dbInstance.collection === 'function'}`);
 console.log(`--------------------------------------`);
 
 
