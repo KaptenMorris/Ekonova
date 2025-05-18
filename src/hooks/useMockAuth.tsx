@@ -86,11 +86,17 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   const fetchUserProfile = useCallback(async (uid: string): Promise<UserProfile | null> => {
-    if (!firebaseConfigIsValid || !db || Object.keys(db).length === 0) {
-      console.error("Firestore is not available due to invalid Firebase configuration. Aborting fetchUserProfile.");
-      // Removed toast from here to avoid spamming if this is called frequently during bad config
+    if (!firebaseConfigIsValid) {
+      console.error("CRITICAL: Firebase configuration is invalid (firebaseConfigIsValid is false). Firestore operations like fetchUserProfile will fail. Check console logs from 'src/lib/firebase.ts' for details on missing/incorrect environment variables.");
       return null;
     }
+    if (!db || (typeof db === 'object' && Object.keys(db).length === 0 && !(db instanceof Timestamp))) { // Check if db is an empty object but not a Timestamp
+      console.error("CRITICAL: Firestore 'db' instance is not available or not properly initialized. Aborting fetchUserProfile. This usually means Firebase failed to initialize correctly in 'src/lib/firebase.ts'. Check previous logs.");
+      return null;
+    }
+
+    console.log(`fetchUserProfile called for UID: ${uid}. firebaseConfigIsValid: ${firebaseConfigIsValid}`);
+
     const userDocRef = doc(db, 'users', uid);
     try {
       const userDocSnap = await getDoc(userDocRef);
@@ -112,6 +118,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         if (e instanceof Error) {
             if (e.name === 'FirebaseError' && ( (e as any).code === 'unavailable' || (e as any).code === 'cancelled' || e.message.toLowerCase().includes('offline') || e.message.toLowerCase().includes('failed to get document because the client is offline') ) ) {
                 console.error(`Firestore fetchUserProfile network/offline error: ${e.message}. Check Firestore status and network connection.`);
+                console.error("ADDITIONAL DEBUG: This 'client is offline' error almost ALWAYS means your Firebase configuration in '.env.local' (NEXT_PUBLIC_FIREBASE_PROJECT_ID, NEXT_PUBLIC_FIREBASE_DATABASE_URL) is incorrect or Firestore is not properly enabled in your Firebase project. PLEASE REVIEW THE INITIALIZATION LOGS FROM 'src/lib/firebase.ts' IN YOUR CONSOLE.");
             } else if ((e as any).code === 0 || e.message.toLowerCase().includes('failed to fetch')) { 
                console.error(`Firestore fetchUserProfile network/CORS error: ${e.message}. Check Firebase platform settings (CORS), network connection, and browser's network tab for more details.`);
             } else {
@@ -122,12 +129,12 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         }
       return null;
     }
-  }, [toast]); // Added toast to dependency array
+  }, [toast]);
 
 
   const ensureUserProfileExists = useCallback(async (user: FirebaseUser, isNewGoogleUser: boolean = false) => {
-     if (!firebaseConfigIsValid || !db || Object.keys(db).length === 0) {
-      console.error("Firestore is not available due to invalid Firebase configuration. Aborting ensureUserProfileExists.");
+     if (!firebaseConfigIsValid) {
+      console.error("CRITICAL: Firebase configuration is invalid. Cannot ensure user profile exists. Check console logs from 'src/lib/firebase.ts'.");
       toast({
         title: "Profilfel",
         description: "Kunde inte skapa eller ladda användarprofil på grund av konfigurationsfel.",
@@ -136,6 +143,12 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       });
       return;
     }
+    if (!db || (typeof db === 'object' && Object.keys(db).length === 0 && !(db instanceof Timestamp))) {
+      console.error("CRITICAL: Firestore 'db' instance is not available. Cannot ensure user profile. Check initialization in 'src/lib/firebase.ts'.");
+      toast({ title: "Databasfel", description: "Kunde inte ansluta till databasen för att hantera användarprofil.", variant: "destructive", duration: 7000 });
+      return;
+    }
+
     const userDocRef = doc(db, 'users', user.uid);
     let profileToSet: UserProfile | null = null;
     try {
@@ -156,17 +169,18 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
           email: user.email,
           name: user.displayName || (isNewGoogleUser && user.email ? user.email.split('@')[0] : 'Ny Användare'),
           avatarUrl: user.photoURL,
-          createdAt: serverTimestamp(), // Use serverTimestamp for new profiles
+          createdAt: serverTimestamp(),
           showBillsSection: true,
         };
         await setDoc(userDocRef, newProfileData);
-        // For createdAt, if we use serverTimestamp, we won't have the exact value client-side immediately.
-        // We can either refetch or use an optimistic local date.
         profileToSet = { ...newProfileData, createdAt: new Date().toISOString() };
       }
       setUserProfile(profileToSet);
     } catch (error) {
       console.error("Error fetching/creating user profile in Firestore:", error);
+      if (error instanceof Error && error.message.toLowerCase().includes("client is offline")) {
+          console.error("ADDITIONAL DEBUG: 'client is offline' during ensureUserProfileExists. This points to fundamental Firebase config issues. Check '.env.local' (PROJECT_ID, DATABASE_URL) and Firestore setup in Firebase console. Review 'src/lib/firebase.ts' logs.");
+      }
       toast({ title: "Profilfel", description: "Kunde inte ladda eller skapa användarprofil.", variant: "destructive" });
       setUserProfile(null);
     }
@@ -176,53 +190,53 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!firebaseConfigIsValid) {
       setIsLoading(false);
-      console.warn("Firebase configuration is invalid. Auth services will not function effectively.");
-      // No toast here, firebase.ts handles the critical console error.
+      console.warn("Firebase configuration is invalid (firebaseConfigIsValid is false in useEffect). Auth services will not function effectively. Check console logs from 'src/lib/firebase.ts' for details.");
       return;
     }
 
     setIsLoading(true);
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      console.log("onAuthStateChanged triggered. User:", user ? user.uid : null, "Email Verified:", user ? user.emailVerified : null);
       setFirebaseUser(user);
       if (user) {
-        if (user.emailVerified) { // Only fetch/ensure profile if email is verified
+        if (user.emailVerified) {
+          console.log("User email is verified, attempting to fetch/ensure profile.");
           const existingProfile = await fetchUserProfile(user.uid);
           if (existingProfile) {
+            console.log("Existing profile found and set:", existingProfile);
             setUserProfile(existingProfile);
           } else {
+            console.log("No existing profile found, ensuring profile exists.");
             await ensureUserProfileExists(user);
           }
         } else {
-          // User exists but email not verified.
-          // Set userProfile to null or a minimal unverified profile if needed by UI.
           setUserProfile(null); 
-          console.log(`User ${user.uid} is authenticated but email not verified. Profile not fully loaded.`);
+          console.log(`User ${user.uid} is authenticated but email not verified. Profile not fully loaded. Waiting for email verification.`);
         }
       } else {
         setUserProfile(null);
+        console.log("No user authenticated, userProfile set to null.");
       }
       setIsLoading(false);
     });
     return () => unsubscribe();
-  }, [fetchUserProfile, ensureUserProfileExists]); // Removed firebaseConfigIsValid from deps as it's module-level const
+  }, [fetchUserProfile, ensureUserProfileExists]);
 
 
   const login = useCallback(async (email?: string, password?: string): Promise<LoginResult> => {
-    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
+    if (!firebaseConfigIsValid) {
+      console.error("Login attempt failed: Firebase configuration is invalid. Check 'src/lib/firebase.ts' logs.");
+      return { success: false, errorKey: 'config_error' };
+    }
     if (!email || !password) return { success: false, errorKey: 'invalid_credentials' };
     
     setIsLoading(true);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       if (!userCredential.user.emailVerified) {
-        // User is technically logged in by Firebase, but email not verified.
-        // onAuthStateChanged will set firebaseUser. Let UI handle verification prompt.
-        // No explicit logout here, allows resendVerification to work.
         setIsLoading(false);
         return { success: false, errorKey: 'account_not_verified' };
       }
-      // If email is verified, onAuthStateChanged would have called ensureUserProfileExists and set userProfile.
-      // Potentially trigger a profile fetch here if onAuthStateChanged hasn't fully completed its async work.
       if (userCredential.user.uid && !userProfile) {
          await fetchUserProfile(userCredential.user.uid).then(setUserProfile);
       }
@@ -234,7 +248,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       console.error("Firebase login error:", e);
       let errorKey: LoginResult['errorKey'] = 'generic_error';
       if (e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
-        console.warn(`Login attempt failed for email: ${email} with Firebase code: ${e.code}. This usually means the email doesn't exist or the password was incorrect, or the credential format is invalid.`);
+        console.warn(`Login attempt failed for email: ${email} with Firebase code: ${e.code} (auth/invalid-credential). This usually means the email doesn't exist or the password was incorrect, or the credential format is invalid.`);
         errorKey = 'invalid_credentials';
       } else if (e.code === 'auth/user-disabled') {
         errorKey = 'user-disabled';
@@ -243,16 +257,21 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: false, errorKey };
     }
-  }, [fetchUserProfile, userProfile]); 
+  }, [fetchUserProfile, userProfile, toast]); 
 
   const signInWithGoogle = useCallback(async (): Promise<LoginResult> => {
-    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
+    if (!firebaseConfigIsValid) {
+      console.error("Google Sign-In attempt failed: Firebase configuration is invalid. Check 'src/lib/firebase.ts' logs.");
+      return { success: false, errorKey: 'config_error' };
+    }
     setIsLoading(true);
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      // onAuthStateChanged will handle setting firebaseUser and calling ensureUserProfileExists.
-      // Google users are typically auto-verified.
+      // ensureUserProfileExists will be called by onAuthStateChanged if this is a new user
+      // or if the profile needs to be updated.
+      // Google users are typically auto-verified by Firebase.
+      // If user signed in, onAuthStateChanged will handle profile loading.
       setIsLoading(false);
       return { success: true };
     } catch (error: any) {
@@ -280,19 +299,22 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: false, errorKey: 'generic_error' };
     }
-  }, [toast, ensureUserProfileExists]);
+  }, [toast]); // ensureUserProfileExists removed as onAuthStateChanged handles it
 
 
   const logout = useCallback(async () => {
-    if (!firebaseConfigIsValid) return;
+    if (!firebaseConfigIsValid) {
+        console.error("Logout attempt failed: Firebase configuration is invalid.");
+        return;
+    }
     setIsLoading(true);
     try {
       const currentUid = firebaseUser?.uid; 
       await signOut(auth);
-      // State updates (firebaseUser, userProfile) handled by onAuthStateChanged
       if (currentUid && typeof window !== 'undefined') {
          localStorage.removeItem(`ekonova-active-board-id-${currentUid}`);
       }
+      // State updates (firebaseUser, userProfile) handled by onAuthStateChanged
       router.push('/login');
       toast({ title: "Utloggad", description: "Du har loggats ut." });
     } catch (e) {
@@ -304,7 +326,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [router, toast, firebaseUser]); 
 
   const signup = useCallback(async (email?: string, password?: string, name?: string): Promise<SignupResult> => {
-    if (!firebaseConfigIsValid) return { success: false, messageKey: 'config_error' };
+    if (!firebaseConfigIsValid) {
+        console.error("Signup attempt failed: Firebase configuration is invalid. Check 'src/lib/firebase.ts' logs.");
+        return { success: false, messageKey: 'config_error' };
+    }
     if (!email || !password || !name) return { success: false, messageKey: 'generic_error' };
     
     setIsLoading(true);
@@ -314,10 +339,9 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
 
       await updateProfile(user, { displayName: name });
 
-      if (!firebaseConfigIsValid || !db || Object.keys(db).length === 0) { // Check db before use
-        console.error("Firestore is not available due to invalid Firebase configuration. Cannot create user profile in DB.");
-        toast({ title: "Profilfel", description: "Kunde inte skapa användarprofil i databasen på grund av konfigurationsfel.", variant: "destructive", duration: 7000 });
-        // Proceed with email verification even if DB profile creation fails for now
+      if (!db || (typeof db === 'object' && Object.keys(db).length === 0 && !(db instanceof Timestamp))) {
+        console.error("CRITICAL: Firestore 'db' instance is not available. Cannot create user profile in DB. Check 'src/lib/firebase.ts' initialization.");
+        toast({ title: "Profilfel", description: "Kunde inte skapa användarprofil i databasen p.g.a. konfigurationsfel.", variant: "destructive", duration: 7000 });
       } else {
         const userProfileData: UserProfile = {
           uid: user.uid,
@@ -328,8 +352,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
           showBillsSection: true,
         };
         await setDoc(doc(db, 'users', user.uid), userProfileData);
-        // Optimistic update for local state - createdAt will be an estimate.
-        setUserProfile({ ...userProfileData, createdAt: new Date().toISOString()});
+        // No need to setUserProfile here, onAuthStateChanged will trigger ensureUserProfileExists
       }
 
       await sendEmailVerification(user);
@@ -341,13 +364,19 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       console.error("Firebase signup error:", e);
       if (e.code === 'auth/email-already-in-use') {
         return { success: false, messageKey: 'already_registered' };
+      } else if (e.code === 'auth/invalid-credential' || e.code === 'auth/invalid-email' || e.code === 'auth/weak-password') {
+        // More specific error handling can be added here if needed
+        return { success: false, messageKey: 'generic_error' }; // Keep it generic for now
       }
       return { success: false, messageKey: 'generic_error' };
     }
   }, [toast]);
 
   const resendVerification = useCallback(async (): Promise<{ success: boolean; errorKey?: string }> => {
-    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
+    if (!firebaseConfigIsValid) {
+        console.error("Resend verification attempt failed: Firebase configuration is invalid.");
+        return { success: false, errorKey: 'config_error' };
+    }
     
     const currentUser = auth.currentUser; 
     if (currentUser) {
@@ -374,10 +403,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [toast]);
 
  const deleteRelatedData = async (uidToDelete: string) => {
-    if (!firebaseConfigIsValid || !db || Object.keys(db).length === 0) {
+    if (!firebaseConfigIsValid || !db || (typeof db === 'object' && Object.keys(db).length === 0 && !(db instanceof Timestamp))) {
       console.warn("Firestore db instance not available or Firebase not configured, skipping deletion of related data.");
       toast({ title: "Fel", description: "Kunde inte radera databasdata p.g.a. konfigurationsfel.", variant: "destructive" });
-      return false; // Indicate failure
+      return false;
     }
     const batch = writeBatch(db);
 
@@ -394,17 +423,23 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       batch.delete(userProfileDocRef);
 
       await batch.commit();
-      return true; // Indicate success
+      return true;
     } catch (error) {
       console.error("Error deleting related Firestore data:", error);
+      if (error instanceof Error && error.message.toLowerCase().includes("client is offline")) {
+         console.error("ADDITIONAL DEBUG: 'client is offline' during deleteRelatedData. Check Firebase config and initialization in 'src/lib/firebase.ts'.");
+      }
       toast({ title: "Fel", description: "Kunde inte radera all tillhörande data från databasen.", variant: "destructive" });
-      return false; // Indicate failure
+      return false;
     }
   };
 
 
   const deleteAccount = useCallback(async () => {
-    if (!firebaseConfigIsValid) return;
+    if (!firebaseConfigIsValid) {
+        console.error("Delete account attempt failed: Firebase configuration is invalid.");
+        return;
+    }
     
     const currentUser = auth.currentUser;
     if (currentUser) {
@@ -413,8 +448,6 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       try {
         const dataDeletedSuccessfully = await deleteRelatedData(uidToDelete); 
         if (!dataDeletedSuccessfully) {
-           // Optionally, decide if you want to proceed with auth user deletion if DB deletion fails.
-           // For now, we'll proceed but the user might have orphaned data if this part fails.
            console.warn("Deletion of related Firestore data failed or was incomplete. Auth user deletion will still be attempted.");
         }
         
@@ -423,6 +456,7 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         const activeIdKey = `ekonova-active-board-id-${uidToDelete}`;
         if (typeof window !== 'undefined') localStorage.removeItem(activeIdKey);
 
+        // onAuthStateChanged will handle setting firebaseUser and userProfile to null
         router.push('/login'); 
         toast({ title: "Konto Raderat", description: "Ditt konto och all tillhörande data har raderats permanent." });
       } catch (e: any) {
@@ -441,7 +475,10 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, [router, toast]);
 
   const changePassword = useCallback(async (newPassword?: string): Promise<ChangePasswordResult> => {
-    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
+    if (!firebaseConfigIsValid) {
+        console.error("Change password attempt failed: Firebase configuration is invalid.");
+        return { success: false, errorKey: 'config_error' };
+    }
     if (!newPassword) return { success: false, errorKey: 'generic_error' }; 
     
     const currentUser = auth.currentUser;
@@ -466,48 +503,54 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateProfilePicture = useCallback(async (imageDataUri: string): Promise<UpdateProfilePictureResult> => {
-    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
+    if (!firebaseConfigIsValid) {
+        console.error("Update profile picture attempt failed: Firebase configuration is invalid.");
+        return { success: false, errorKey: 'config_error' };
+    }
     
     const currentUser = auth.currentUser;
     if (currentUser) {
-       if (!db || Object.keys(db).length === 0) { // Check db before use
-         console.error("Firestore is not available due to invalid Firebase configuration. Cannot update profile picture in DB.");
+       if (!db || (typeof db === 'object' && Object.keys(db).length === 0 && !(db instanceof Timestamp))) {
+         console.error("CRITICAL: Firestore 'db' instance is not available. Cannot update profile picture in DB. Check 'src/lib/firebase.ts' initialization.");
          toast({ title: "Profilfel", description: "Kunde inte spara profilbild i databasen p.g.a. konfigurationsfel.", variant: "destructive", duration: 7000 });
          return { success: false, errorKey: 'config_error' };
        }
       setIsLoading(true);
       try {
-        // Update in Firebase Auth (if photoURL is the intended use)
         await updateProfile(currentUser, { photoURL: imageDataUri });
         
-        // Update in Firestore 'users' collection
         const userDocRef = doc(db, 'users', currentUser.uid);
         await setDoc(userDocRef, { avatarUrl: imageDataUri }, { merge: true });
 
-        // Optimistically update local state
         setUserProfile(prev => prev ? { ...prev, avatarUrl: imageDataUri } : null);
-        setFirebaseUser(auth.currentUser); // Refresh firebaseUser state which might hold old photoURL
+        setFirebaseUser(auth.currentUser);
 
         setIsLoading(false);
         return { success: true };
       } catch (e: any) {
         setIsLoading(false);
         console.error("Firebase update profile picture error:", e);
+        if (e instanceof Error && e.message.toLowerCase().includes("client is offline")) {
+          console.error("ADDITIONAL DEBUG: 'client is offline' during updateProfilePicture. Check Firebase config and initialization.");
+        }
         return { success: false, errorKey: 'generic_error' }; 
       }
     } else {
       setIsLoading(false);
       return { success: false, errorKey: 'generic_error' }; 
     }
-  }, [toast]); // Added toast
+  }, [toast]);
 
   const updateUserPreferences = useCallback(async (preferences: Partial<Pick<UserProfile, 'showBillsSection'>>): Promise<UpdateUserPreferencesResult> => {
-    if (!firebaseConfigIsValid) return { success: false, errorKey: 'config_error' };
+    if (!firebaseConfigIsValid) {
+        console.error("Update user preferences attempt failed: Firebase configuration is invalid.");
+        return { success: false, errorKey: 'config_error' };
+    }
     
     const currentUser = auth.currentUser;
     if (currentUser) {
-      if (!db || Object.keys(db).length === 0) { // Check db before use
-        console.error("Firestore is not available due to invalid Firebase configuration. Cannot update user preferences.");
+      if (!db || (typeof db === 'object' && Object.keys(db).length === 0 && !(db instanceof Timestamp))) {
+        console.error("CRITICAL: Firestore 'db' instance is not available. Cannot update user preferences. Check 'src/lib/firebase.ts' initialization.");
         toast({ title: "Inställningsfel", description: "Kunde inte spara inställningar p.g.a. konfigurationsfel.", variant: "destructive", duration: 7000 });
         return { success: false, errorKey: 'config_error' };
       }
@@ -521,14 +564,16 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
       } catch (e: any) {
         setIsLoading(false);
         console.error("Firebase update user preferences error:", e);
+        if (e instanceof Error && e.message.toLowerCase().includes("client is offline")) {
+          console.error("ADDITIONAL DEBUG: 'client is offline' during updateUserPreferences. Check Firebase config and initialization.");
+        }
         return { success: false, errorKey: 'generic_error' };
       }
     } else {
       return { success: false, errorKey: 'not_found' };
     }
-  }, [toast]); // Added toast
+  }, [toast]);
   
-  // Check if firebaseUser exists AND email is verified for isAuthenticated
   const isAuthenticatedResult = firebaseConfigIsValid && !!firebaseUser && !!firebaseUser.emailVerified;
 
   return (
